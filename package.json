@@ -1,0 +1,29 @@
+{
+  "name": "project",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "npx gulp && concurrently \"npx gulp watch\" \"npx eleventy --serve\"",
+    "production": "NODE_ENV=production npx gulp && NODE_ENV=production npx eleventy"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@11ty/eleventy": "^1.0.1"
+  },
+  "dependencies": {
+    "concurrently": "^7.1.0",
+    "get-google-fonts": "^1.2.2",
+    "gorko": "^0.9.1",
+    "gulp": "^4.0.2",
+    "gulp-clean-css": "^4.3.0",
+    "gulp-imagemin": "^7.0.1",
+    "gulp-sass": "^5.1.0",
+    "markdown-it": "^13.0.0",
+    "markdown-it-image-figures": "^2.1.0",
+    "moment": "^2.29.3",
+    "sass": "^1.51.0"
+  }
+}

@@ -1,0 +1,15 @@
+{% extends "layouts/base.html" %}
+
+{% set posts = collections.blog %}
+
+{% block content %}
+<div class="wrapper">
+  <article>
+    {% if posts %}
+      <div>
+        {% include "partials/post.html" %}
+      </div>
+    {% endif %}
+  </article>
+</div>
+{% endblock %}

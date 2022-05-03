@@ -1,0 +1,12 @@
+{% extends "layouts/base.html" %} 
+{% block content %}
+<div class="wrapper">
+   <div class="stack">
+      <h1>{{ title }}</h1>
+      <div class="canvas-container">
+         <canvas id="canvas"></canvas>
+      </div>
+      <p>{{ content | safe }}</p>
+   </div>
+</div>
+{% endblock %}

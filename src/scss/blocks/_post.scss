@@ -1,0 +1,17 @@
+.post {
+   img {
+      @include apply_utility('measure', 'short');
+
+      margin: 0 auto;
+   }
+
+   figcaption {
+      color: get-color('dark-glare');
+      font-style: italic;
+      text-align: center;
+   }
+
+   time {
+      color: get-color('quinary-shade');
+   }
+} 

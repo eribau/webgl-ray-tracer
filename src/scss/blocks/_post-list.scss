@@ -1,0 +1,19 @@
+.post-list {
+   ul {
+      list-style: none;
+      padding: 0;
+   }
+
+   display: flex;
+   flex-direction: column;
+   justify-content: flex-start;
+}
+
+.post-list * {
+   margin-top: 0;
+   margin-bottom: 0;
+}
+
+.post-list * + * {
+   margin-top: get-size('500');
+}
