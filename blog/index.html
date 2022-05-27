@@ -13,7 +13,7 @@
    
    
 
-   <link rel="stylesheet" media="print" href="/fonts/fonts.css?dfe9-6541-fb2a" onload="this.media='all'" />
+   <link rel="stylesheet" media="print" href="/fonts/fonts.css?f0bc-1645-1921" onload="this.media='all'" />
 
    
    
@@ -52,6 +52,23 @@
 <div class="post-list">
    <ul>
       
+      
+      
+         <li>
+            <article class="post">
+               <h1>Rendering a sphere</h1>
+               <time datetime="2022-05-27T00:00:00.000Z">27th of May 2022</time>
+               <p>I've been trying for some time to get something to work that I saw in another implementation of a <a href="https://madebyevan.com/webgl-path-tracing/">ray tracer by Evan Wallace</a>. He renders the output from the fragment shader to a texture and then on the next render he switches to another texture which uses the results from the first to create a more detailed render. This means that the wuality gets better and better as time goes, unless you move the scene which means that the program has to recalculate the shaders and start rendering from scratch. I couldn't get this to work right now so I've started just implementing <a href="https://raytracing.github.io/books/RayTracingInOneWeekend.html">Ray Tracing in One Weekend</a> code directly in the fragment shader and just render it to a rectangular surface.</p>
+<figure><img src="../images/blue_skies.png" alt="A blue sky"><figcaption>A blue sky.</figcaption></figure>
+<p>I had to make some small changes to get things to work in WebGL, but transferring the code has been very straightforward so far. To calculate a ray going from the camera through each pixel I just run the fragment shader and use the gl_FragCoord variable to get the window relative x and y coordinates of each pixel (which I divide by the window width and height respectively).</p>
+<figure><img src="../images/fiery_ball_in_the_sky.png" alt="A blue sky"><figcaption>A fiery red ball in the sky.</figcaption></figure>
+<p>I've also made use of some of the inbuilt functions in glsl like mix() instead of writing my own linear interpolation function.</p>
+<figure><img src="../images/normal_ball.png" alt="A blue sky"><figcaption>A sphere colored according to the directions of its surface normals.</figcaption></figure>
+<p>The next step will be to setup javascript classes for handling spheres and making the code a bit more general.</p>
+
+            </article>
+         </li>
+         
       
       
          <li>
