@@ -1,11 +1,16 @@
+$width: 600px;
+$aspect-ratio: 16 / 9;
+
 .canvas-container {
-   width: 40rem;
+   width: $width;
+   height: calc($width / $aspect-ratio);
    margin-left: auto;
    margin-right: auto;
 
    canvas {
       width: 100%;
-      aspect-ratio: 1;
+      height: 100%;
+      aspect-ratio: $aspect-ratio;
       display: block;
    }
 }
