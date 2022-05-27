@@ -29,21 +29,31 @@ const fragmentShaderSource = glsl`
    vec3 vertical = vec3(0.0, viewport_height, 0.0);
    vec3 lower_left_corner = eye - horizontal/2.0 - vertical/2.0 - vec3(0.0, 0.0, focal_length);
 
-   bool hit_sphere(vec3 center, float radius, vec3 origin, vec3 direction) {
+   vec3 at(vec3 origin, vec3 direction, float t) {
+      return origin + t*direction;
+   }
+
+   float hit_sphere(vec3 center, float radius, vec3 origin, vec3 direction) {
       vec3 oc = origin - center;
       float a = dot(direction, direction);
       float b = 2.0 * dot(oc, direction);
       float c = dot(oc, oc) - radius*radius;
       float discriminant = b*b - 4.0*a*c;
-      return (discriminant > 0.0);
-   }
+      if(discriminant < 0.0) {
+         return -1.0;
+      } else {
+         return (-b - sqrt(discriminant)) / (2.0*a);
+      }
+   }  
 
    vec3 ray_color(vec3 origin, vec3 direction) {
-      if(hit_sphere(vec3(0.0, 0.0, -1.0), 0.5, origin, direction)) {
-         return vec3(1.0, 0.0, 0.0);
+      float t = hit_sphere(vec3(0.0, 0.0, -1.0), 0.5, origin, direction);
+      if(t > 0.0) {
+         vec3 N = normalize(at(origin, direction, t) - vec3(0.0, 0.0, -1.0));
+         return 0.5*vec3(N.x + 1.0, N.y + 1.0, N.z + 1.0);
       }
       vec3 unit_direction = normalize(direction);
-      float t = 0.5*(unit_direction.y + 1.0);
+      t = 0.5*(unit_direction.y + 1.0);
       return mix(vec3(1.0, 1.0, 1.0), vec3(0.5, 0.7, 1.0), t);
    }
 
