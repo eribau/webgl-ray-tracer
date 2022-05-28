@@ -3,6 +3,8 @@
 const glsl = x => x;
 
 // Define shaders
+//-------------------------------------------------------------------
+// Vertex shader
 const vertexShaderSource = glsl`
    attribute vec4 a_position;
    void main() {
@@ -10,7 +12,8 @@ const vertexShaderSource = glsl`
    }
 `; 
 
-const fragmentShaderSource = glsl` 
+// Fragment shader
+var fragmentShaderHeader = glsl`
    precision mediump float;
    varying vec4 v_color;
    float aspect_ratio = 16.0 / 9.0;
@@ -24,42 +27,84 @@ const fragmentShaderSource = glsl`
    vec3 horizontal = vec3(viewport_width, 0.0, 0.0);
    vec3 vertical = vec3(0.0, viewport_height, 0.0);
    vec3 lower_left_corner = eye - horizontal/2.0 - vertical/2.0 - vec3(0.0, 0.0, focal_length);
+`;
 
-   vec3 at(vec3 origin, vec3 direction, float t) {
-      return origin + t*direction;
-   }
+const hit_record = glsl`
+   struct Hit_record {
+      vec3 p;
+      vec3 normal;
+      float t;
+   };
+`;
 
-   float hit_sphere(vec3 center, float radius, vec3 origin, vec3 direction) {
-      vec3 oc = origin - center;
-      float a = dot(direction, direction);
-      float half_b = dot(oc, direction);
-      float c = dot(oc, oc) - radius*radius;
-      float discriminant = half_b*half_b - a*c;
-      if(discriminant < 0.0) {
-         return -1.0;
-      } else {
-         return (-half_b - sqrt(discriminant)) / a;
-      }
+const ray = glsl`
+   struct Ray {
+      vec3 origin;
+      vec3 direction;
+   };
+`;
+
+const rayAt = glsl`
+   vec3 at(Ray r, float t) {
+      return r.origin + t*r.direction;
    }  
+`;
 
-   vec3 ray_color(vec3 origin, vec3 direction) {
-      float t = hit_sphere(vec3(0.0, 0.0, -1.0), 0.5, origin, direction);
+var sphereHit = glsl`
+   float hit_sphere(vec3 center, float radius, Ray r) {
+   vec3 oc = r.origin - center;
+   float a = dot(r.direction, r.direction);
+   float half_b = dot(oc, r.direction);
+   float c = dot(oc, oc) - radius*radius;
+   float discriminant = half_b*half_b - a*c;
+   if(discriminant < 0.0) {
+      return -1.0;
+   } else {
+      return (-half_b - sqrt(discriminant)) / a;
+   }
+}
+`;
+
+var rayColor = glsl`
+   vec3 ray_color(Ray r) {
+      float t = hit_sphere(vec3(0.0, 0.0, -1.0), 0.5, r);
       if(t > 0.0) {
-         vec3 N = normalize(at(origin, direction, t) - vec3(0.0, 0.0, -1.0));
+         vec3 N = normalize(at(r, t) - vec3(0.0, 0.0, -1.0));
          return 0.5*vec3(N.x + 1.0, N.y + 1.0, N.z + 1.0);
       }
-      vec3 unit_direction = normalize(direction);
+      vec3 unit_direction = normalize(r.direction);
       t = 0.5*(unit_direction.y + 1.0);
       return mix(vec3(1.0, 1.0, 1.0), vec3(0.5, 0.7, 1.0), t);
    }
+`;
 
-   void main() {
+var fragmentShaderMain = glsl` 
+      void main() {
      float u = gl_FragCoord.x / image_width;
      float v = gl_FragCoord.y / image_height;
-     gl_FragColor = vec4(ray_color(eye, lower_left_corner + u*horizontal + v*vertical - eye), 1.0);
+     Ray r = Ray(eye, lower_left_corner + u*horizontal + v*vertical - eye);
+     gl_FragColor = vec4(ray_color(r), 1.0);
    }
 `;
 
+function creatFragmentShaderSource() {
+   return fragmentShaderHeader +
+   hit_record + 
+   ray +
+   rayAt +
+   sphereHit +
+   rayColor + 
+   fragmentShaderMain;
+}  
+
+// Object classes
+//-------------------------------------------------------------------
+class Hittable {
+
+}
+
+
+//-------------------------------------------------------------------
 function createShader(gl, type, source) {
    var shader = gl.createShader(type);
    gl.shaderSource(shader, source);
@@ -107,6 +152,8 @@ function resizeCanvasToDisplaySize(canvas, multiplier) {
    return false;
  }
 
+//-------------------------------------------------------------------
+
 function main() {
    var canvas = document.querySelector("#canvas");
    // var gl = WebGLDebugUtils.makeDebugContext(canvas.getContext("webgl"), undefined, logGLCall);
@@ -115,6 +162,8 @@ function main() {
       console.log("No webGl!");
       return;
    }
+
+   var fragmentShaderSource = creatFragmentShaderSource();
 
    var program = createProgramFromSource(gl, vertexShaderSource, fragmentShaderSource);
 
