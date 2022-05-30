@@ -24,6 +24,8 @@ const fragmentShaderHeader = glsl`
    float viewport_height = 2.0;
    float viewport_width = viewport_height * aspect_ratio;
    float focal_length = 1.0;
+   const int samples_per_pixel = 100;
+   const int max_depth = 50;
 
    // Camera
    vec3 eye = vec3(0.0, 0.0, 0.0);
@@ -46,12 +48,53 @@ const degreesToRadians = glsl`
 
 const random = glsl`
    // Pseudo-random function taken from https://thebookofshaders.com/10/
-   float rand(){
-      return fract(sin(dot(gl_FragCoord.xy, vec2(12.9898,78.233))) * 43758.5453);
+   // float rand(){
+   //    return fract(sin(dot(vec2(gl_FragCoord.x / image_width, gl_FragCoord / image_height), vec2(12.9898,78.233))) * 43758.5453);
+   // }
+
+   // Hash without Sine, taken from https://www.shadertoy.com/view/4djSRW
+   // MIT License...
+   /* Copyright (c)2014 David Hoskins.
+
+   Permission is hereby granted, free of charge, to any person obtaining a copy
+   of this software and associated documentation files (the "Software"), to deal
+   in the Software without restriction, including without limitation the rights
+   to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+   copies of the Software, and to permit persons to whom the Software is
+   furnished to do so, subject to the following conditions:
+
+   The above copyright notice and this permission notice shall be included in all
+   copies or substantial portions of the Software.
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+   SOFTWARE.*/
+   float rand()
+   {
+      vec2 p = vec2(gl_FragCoord.x / image_width, gl_FragCoord / image_height);
+   	vec3 p3  = fract(vec3(p.xyx) * .1031);
+       p3 += dot(p3, p3.yzx + 33.33);
+       return fract((p3.x + p3.y) * p3.z);
    }
 
-   float rand(float min, float max) {
+   float rand_range(float min, float max) {
       return min + (max-min)*rand();
+   }
+
+   // Based on https://karthikkaranth.me/blog/generating-random-points-in-a-sphere/ and
+   // https://math.stackexchange.com/questions/87230/picking-random-points-in-the-volume-of-sphere-with-uniform-probability/87238#87238
+   vec3 random_in_unit_sphere() {
+      float u = rand();
+      vec3 p = vec3(rand_range(-1.0, 1.0), rand_range(-1.0, 1.0), rand_range(-1.0, 1.0));
+
+      float mag = sqrt(p.x*p.x + p.y*p.y + p.z*p.z);
+      float c = pow(abs(u), 1.0 / 3.0);
+
+      return p * c / mag;
    }
 `;
 
@@ -150,15 +193,15 @@ const hit = glsl`
 const rayColor = glsl`
    vec3 ray_color(Ray r, Sphere spheres[2]) {
       Hit_record rec;
+      vec3 color = vec3(0.0, 0.0, 0.0);
 
-      if(hit(spheres, r, 0.0, infinity, rec)) {
-         return 0.5 * (rec.normal + vec3(1.0, 1.0, 1.0));
+      for(int i = 0; i < max_depth; ++i) {
+         if(hit(spheres, r, 0.0, infinity, rec)) {
+            vec3 target = rec.p + rec.normal + random_in_unit_sphere();
+            return 0.5 * (rec.normal + vec3(1.0, 1.0, 1.0));
+         }
       }
-      // float t = hit_sphere(vec3(0.0, 0.0, -1.0), 0.5, r);
-      // if(t > 0.0) {
-      //    vec3 N = normalize(at(r, t) - vec3(0.0, 0.0, -1.0));
-      //    return 0.5*vec3(N.x + 1.0, N.y + 1.0, N.z + 1.0);
-      // }
+      
       vec3 unit_direction = normalize(r.direction);
       float t = 0.5*(unit_direction.y + 1.0);
       return mix(vec3(1.0, 1.0, 1.0), vec3(0.5, 0.7, 1.0), t);
@@ -169,15 +212,23 @@ const fragmentShaderMain = glsl`
    // World
    
    void main() {
+      // World
       Sphere spheres[2];
       Sphere sphere = Sphere(vec3(0.0, 0.0, -1.0), 0.5);
       spheres[0] = Sphere(vec3(0.0, 0.0, -1.0), 0.5);
       spheres[1] = Sphere(vec3(0.0, -100.5, -1.0), 100.0);
 
-      float u = gl_FragCoord.x / image_width;
-      float v = gl_FragCoord.y / image_height;
-      Ray r = Ray(eye, lower_left_corner + u*horizontal + v*vertical - eye);
-      gl_FragColor = vec4(ray_color(r, spheres), 1.0);
+      float f_samples_per_pixel = float(samples_per_pixel);
+      float scale = 1.0 / f_samples_per_pixel;
+      vec3 color = vec3(0.0, 0.0, 0.0);
+      for(int s = 0; s < samples_per_pixel; ++s) {
+         float u = (gl_FragCoord.x + rand()) / (image_width - 1.0);
+         float v = (gl_FragCoord.y + rand()) / (image_height - 1.0);
+         Ray r = Ray(eye, lower_left_corner + u*horizontal + v*vertical - eye);
+         
+         color += clamp(scale*ray_color(r, spheres), 0.0, 0.999);
+      }
+      gl_FragColor = vec4(color, 1.0);
    }
 `;
 
