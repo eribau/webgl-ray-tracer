@@ -5,37 +5,40 @@ const glsl = x => x;
 // Define shaders
 //-------------------------------------------------------------------
 // Vertex shader
-const vertexShaderSource = glsl`
-   attribute vec4 a_position;
+const vertexShaderSource = glsl`#version 300 es
+   in vec4 a_position;
    void main() {
      gl_Position = a_position;
    }
 `; 
 
 // Fragment shader
-const fragmentShaderHeader = glsl`
+const fragmentShaderHeader = glsl`#version 300 es
    precision mediump float;
-   varying vec4 v_color;
+   out vec4 frag_color;
 
    // Image
-   float aspect_ratio = 16.0 / 9.0;
-   float image_width = 600.0;
-   float image_height = image_width / aspect_ratio;
-   float viewport_height = 2.0;
-   float viewport_width = viewport_height * aspect_ratio;
-   float focal_length = 1.0;
+   const float aspect_ratio = 16.0 / 9.0;
+   const float image_width = 600.0;
+   const float image_height = image_width / aspect_ratio;
+   const float viewport_height = 2.0;
+   const float viewport_width = viewport_height * aspect_ratio;
+   const float focal_length = 1.0;
    const int samples_per_pixel = 100;
    const int max_depth = 50;
 
    // Camera
-   vec3 eye = vec3(0.0, 0.0, 0.0);
-   vec3 horizontal = vec3(viewport_width, 0.0, 0.0);
-   vec3 vertical = vec3(0.0, viewport_height, 0.0);
-   vec3 lower_left_corner = eye - horizontal/2.0 - vertical/2.0 - vec3(0.0, 0.0, focal_length);
+   const vec3 eye = vec3(0.0, 0.0, 0.0);
+   const vec3 horizontal = vec3(viewport_width, 0.0, 0.0);
+   const vec3 vertical = vec3(0.0, viewport_height, 0.0);
+   const vec3 lower_left_corner = eye - horizontal/2.0 - vertical/2.0 - vec3(0.0, 0.0, focal_length);
 
    // Constants
    float infinity = 10000.0;
    float pi = 3.1415926535897932385;
+   #define TAU 2. *pi
+   // Φ = Golden Ratio
+   #define PHI 1.61803398874989484820459
 `;
 
 // Utilities
@@ -75,7 +78,7 @@ const random = glsl`
    SOFTWARE.*/
    float rand()
    {
-      vec2 p = vec2(gl_FragCoord.x / image_width, gl_FragCoord / image_height);
+      vec2 p = vec2(gl_FragCoord.x, gl_FragCoord.y);
    	vec3 p3  = fract(vec3(p.xyx) * .1031);
        p3 += dot(p3, p3.yzx + 33.33);
        return fract((p3.x + p3.y) * p3.z);
@@ -85,17 +88,92 @@ const random = glsl`
       return min + (max-min)*rand();
    }
 
+   // https://github.com/Pikachuxxxx/Raytracing-in-a-Weekend-GLSL/blob/master/raytracer/shaders/Chapter-8-DiffuseMaterialsPS.glsl
+   // float Random () {
+   //    float phi = 1.61803398874989484820459;
+   //    vec2 p = vec2(gl_FragCoord.x, gl_FragCoord.y);
+   //    return fract(tan(distance(p*phi, p)*0.25)*p.x);
+   // }
+
    // Based on https://karthikkaranth.me/blog/generating-random-points-in-a-sphere/ and
    // https://math.stackexchange.com/questions/87230/picking-random-points-in-the-volume-of-sphere-with-uniform-probability/87238#87238
-   vec3 random_in_unit_sphere() {
-      float u = rand();
-      vec3 p = vec3(rand_range(-1.0, 1.0), rand_range(-1.0, 1.0), rand_range(-1.0, 1.0));
+   // vec3 random_in_unit_sphere() {
+   //    float u = rand();
+   //    vec3 p = vec3(rand_range(-1.0, 1.0), rand_range(-1.0, 1.0), rand_range(-1.0, 1.0));
 
-      float mag = sqrt(p.x*p.x + p.y*p.y + p.z*p.z);
-      float c = pow(abs(u), 1.0 / 3.0);
+   //    float mag = sqrt(p.x*p.x + p.y*p.y + p.z*p.z);
+   //    float c = pow(abs(u), 1.0 / 3.0);
+   //    p /= mag;
 
-      return p * c / mag;
+   //    return p * c;
+   // }
+
+   float g_seed = 0.25;
+   float random (vec2 st) {
+      return fract(tan(distance(st*PHI, st)*g_seed)*st.x);
    }
+
+   vec2 random2(float seed){
+     return vec2(
+       random(vec2(seed-1.23, (seed+3.1)* 3.2)),
+       random(vec2(seed+12.678, seed - 5.8324))
+       );
+   }
+
+   vec3 random3(float seed){
+     return vec3(
+       random(vec2(seed-0.678, seed-0.123)),
+       random(vec2(seed-0.3, seed+0.56)),
+       random(vec2(seed+0.1234, seed-0.523))
+       );
+   }
+
+   vec3 RandomInUnitSphere() {
+      vec2 tp = vec2(rand(), rand());
+      float theta = tp.x * 2. * pi;
+      float phi = tp.y * 2. * pi;
+      vec3 p = vec3(sin(theta) * cos(phi), sin(theta)*sin(phi), cos(theta));
+    
+      return normalize(p);
+    }
+
+    vec3 random_unit(float seed){
+      vec2 rand = random2(seed);
+      float a = rand.x * TAU;
+      float z = (2. * rand.y) - 1.;
+      float r = sqrt(1. - z*z);
+      return vec3(r*cos(a), r*sin(a), z);
+   }
+
+   uint base_hash(uvec2 p) {
+      p = 1103515245U*((p >> 1U)^(p.yx));
+      uint h32 = 1103515245U*((p.x)^(p.y>>3U));
+      return h32^(h32 >> 16);
+   }
+
+   vec2 hash2(inout float seed) {
+       uint n = base_hash(floatBitsToUint(vec2(seed+=.1,seed+=.1)));
+       uvec2 rz = uvec2(n, n*48271U);
+       return vec2(rz.xy & uvec2(0x7fffffffU))/float(0x7fffffff);
+   }
+
+   vec3 hash3(inout float seed) {
+       uint n = base_hash(floatBitsToUint(vec2(seed+=.1,seed+=.1)));
+       uvec3 rz = uvec3(n, n*16807U, n*48271U);
+       return vec3(rz & uvec3(0x7fffffffU))/float(0x7fffffff);
+   }
+
+   vec3 random_in_unit_sphere(inout float seed) {
+      vec3 h = hash3(seed) * vec3(2.,6.28318530718,1.)-vec3(1,0,0);
+      float phi = h.y;
+      float r = pow(h.z, 1./3.);
+      return r * vec3(sqrt(1.-h.x*h.x)*vec2(sin(phi),cos(phi)),h.x);
+   }
+
+    //https://stackoverflow.com/a/34276128
+   // bool isnan(float x){
+   //    return !(x > 0. || x < 0. || x == 0.);
+   // }
 `;
 
 const ray = glsl`
@@ -140,7 +218,7 @@ const sphereHit = glsl`
                   Ray r,
                   float t_min,
                   float t_max,
-                  out Hit_record rec
+                  inout Hit_record rec
    ) {
       vec3 oc = r.origin - center;
       float a = dot(r.direction, r.direction);
@@ -164,8 +242,6 @@ const sphereHit = glsl`
       rec.p = at(r, rec.t);
       vec3 outward_normal = (rec.p - center) / radius;
       set_face_normal(rec, r, outward_normal);
-      // rec.front_face = true;
-      // rec.normal = outward_normal;
 
       return true;
    }
@@ -193,18 +269,38 @@ const hit = glsl`
 const rayColor = glsl`
    vec3 ray_color(Ray r, Sphere spheres[2]) {
       Hit_record rec;
-      vec3 color = vec3(0.0, 0.0, 0.0);
+      vec3 color = vec3(1.0);
+      float m = 1.0;
+
+      // for(int i = 0; i < max_depth; ++i) {
+      //    if(hit(spheres, r, 0.0, infinity, rec)) {
+      //       vec3 target = rec.p + rec.normal + random_in_unit_sphere;
+      //       r = Ray(rec.p, target - rec.p);
+      //       m *= 0.5;
+      //    } else {
+      //       vec3 unit_direction = normalize(r.direction);
+      //       float t = 0.5*(unit_direction.y + 1.0);
+      //       color = mix(vec3(1.0, 1.0, 1.0), vec3(0.5, 0.7, 1.0), t);
+      //       break;
+      //    }
+      // }
+      // return color * m;
 
       for(int i = 0; i < max_depth; ++i) {
          if(hit(spheres, r, 0.0, infinity, rec)) {
-            vec3 target = rec.p + rec.normal + random_in_unit_sphere();
-            return 0.5 * (rec.normal + vec3(1.0, 1.0, 1.0));
+            vec3 target = rec.p + rec.normal + random_in_unit_sphere(g_seed);
+            color *= 0.5;
+
+            r.origin = rec.p;
+            r.direction = target - rec.p;
+         } else {
+            vec3 unit_direction = normalize(r.direction);
+            float t = 0.5*(unit_direction.y + 1.0);
+            color = mix(vec3(1.0), vec3(0.5, 0.7, 1.0), t);
+            return color;
          }
       }
-      
-      vec3 unit_direction = normalize(r.direction);
-      float t = 0.5*(unit_direction.y + 1.0);
-      return mix(vec3(1.0, 1.0, 1.0), vec3(0.5, 0.7, 1.0), t);
+      return color;
    }
 `;
 
@@ -214,7 +310,6 @@ const fragmentShaderMain = glsl`
    void main() {
       // World
       Sphere spheres[2];
-      Sphere sphere = Sphere(vec3(0.0, 0.0, -1.0), 0.5);
       spheres[0] = Sphere(vec3(0.0, 0.0, -1.0), 0.5);
       spheres[1] = Sphere(vec3(0.0, -100.5, -1.0), 100.0);
 
@@ -222,13 +317,21 @@ const fragmentShaderMain = glsl`
       float scale = 1.0 / f_samples_per_pixel;
       vec3 color = vec3(0.0, 0.0, 0.0);
       for(int s = 0; s < samples_per_pixel; ++s) {
+
+         // g_seed = random(gl_FragCoord.xy * (mod(float(s+11), 100.)));
+         // if(isnan(g_seed)){
+         //   g_seed = 0.25;
+         // }
+
+         g_seed = float(base_hash(floatBitsToUint(gl_FragCoord.xy)))/float(0xffffffffU)+float(s);
+
          float u = (gl_FragCoord.x + rand()) / (image_width - 1.0);
          float v = (gl_FragCoord.y + rand()) / (image_height - 1.0);
          Ray r = Ray(eye, lower_left_corner + u*horizontal + v*vertical - eye);
          
          color += clamp(scale*ray_color(r, spheres), 0.0, 0.999);
       }
-      gl_FragColor = vec4(color, 1.0);
+      frag_color = vec4(color, 1.0);
    }
 `;
 
@@ -306,8 +409,8 @@ function resizeCanvasToDisplaySize(canvas, multiplier) {
 
 function main() {
    var canvas = document.querySelector("#canvas");
-   var gl = WebGLDebugUtils.makeDebugContext(canvas.getContext("webgl"), undefined, logGLCall);
-   // var gl = canvas.getContext("webgl");
+   var gl = WebGLDebugUtils.makeDebugContext(canvas.getContext("webgl2"), undefined, logGLCall);
+   // var gl = canvas.getContext("webgl2");
    if(!gl) {
       console.log("No webGl!");
       return;
