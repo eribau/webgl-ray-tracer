@@ -288,7 +288,7 @@ const rayColor = glsl`
 
       for(int i = 0; i < max_depth; ++i) {
          if(hit(spheres, r, 0.0, infinity, rec)) {
-            vec3 target = rec.p + rec.normal + random_in_unit_sphere(g_seed);
+            vec3 target = rec.p + rec.normal + normalize(random_in_unit_sphere(g_seed));
             color *= 0.5;
 
             r.origin = rec.p;
@@ -331,7 +331,7 @@ const fragmentShaderMain = glsl`
          
          color += clamp(scale*ray_color(r, spheres), 0.0, 0.999);
       }
-      frag_color = vec4(color, 1.0);
+      frag_color = vec4(sqrt(color), 1.0);
    }
 `;
 
