@@ -25,5 +25,8 @@
     "markdown-it-image-figures": "^2.1.0",
     "moment": "^2.29.3",
     "sass": "^1.51.0"
+  },
+  "prettier": {
+    "tabWidth": 3
   }
 }
