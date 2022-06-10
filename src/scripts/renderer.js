@@ -6,10 +6,10 @@ const glsl = (x) => x;
 //-------------------------------------------------------------------
 // Vertex shader
 const vertexShaderSource = glsl`#version 300 es
-   in vec4 a_position;
+   in vec4 vertex;
 
    void main() {
-      gl_Position = a_position;
+      gl_Position = vertex;
    }
 `;
 
@@ -17,6 +17,7 @@ const vertexShaderSource = glsl`#version 300 es
 const fragmentShaderHeader = glsl`#version 300 es
    precision mediump float;
    
+   uniform float time;
    uniform sampler2D u_texture;
    out vec4 frag_color;
 
@@ -27,7 +28,7 @@ const fragmentShaderHeader = glsl`#version 300 es
    const float viewport_height = 2.0;
    const float viewport_width = viewport_height * aspect_ratio;
    const float focal_length = 1.0;
-   const int samples_per_pixel = 10;
+   const int samples_per_pixel = 1;
    const int max_depth = 50;
 
    // Camera
@@ -323,7 +324,7 @@ const fragmentShaderMain = glsl`
          //   g_seed = 0.25;
          // }
 
-         g_seed = float(base_hash(floatBitsToUint(gl_FragCoord.xy)))/float(0xffffffffU)+float(s);
+         g_seed = float(base_hash(floatBitsToUint(gl_FragCoord.xy)))/float(0xffffffffU)+float(time);
 
          float u = (gl_FragCoord.x + rand()) / (image_width - 1.0);
          float v = (gl_FragCoord.y + rand()) / (image_height - 1.0);
@@ -381,14 +382,13 @@ var textureFragmentSource = glsl`#version 300 es
  `;
 
 var renderVertexSource = glsl`#version 300 es
-   in vec4 a_position;
-   in vec2 a_texcoord;
+   in vec4 vertex;
 
    out vec2 v_texcoord;
 
    void main() {
-      v_texcoord = a_position.xy * 0.5 + 0.5;
-      gl_Position = a_position;
+      v_texcoord = vertex.xy * 0.5 + 0.5;
+      gl_Position = vertex;
    }
 `;
 
@@ -478,53 +478,9 @@ function main() {
       return;
    }
 
-   // var fragmentShaderSource = createFragmentShaderSource();
+   const start = new Date();
 
-   // var textureProgram = createProgramFromSource(gl, vertexShaderSource, fragmentShaderSource);
-
-   // var positionAttributeLocation = gl.getAttribLocation(textureProgram, "a_position");
-   // var positionBuffer = gl.createBuffer();
-   // gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-
-   // var positions = [
-   //    -1, -1,
-   //    -1, 1,
-   //    1, -1,
-   //    1, -1,
-   //    -1, 1,
-   //    1, 1
-   // ];
-   // gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
-
-   // resizeCanvasToDisplaySize(gl.canvas);
-
-   // gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
-
-   // // Clear the canvas
-   // gl.clearColor(0, 0, 0, 0);
-   // gl.clear(gl.COLOR_BUFFER_BIT);
-
-   // // Render graphics 'hello world'
-   // gl.useProgram(textureProgram);
-
-   // gl.enableVertexAttribArray(positionAttributeLocation);
-
-   // // Bind the position buffer
-   // gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-
-   // var size = 2;
-   // var type = gl.FLOAT;
-   // var normalize = false;
-   // var stride = 0;
-   // var offset = 0;
-   // gl.vertexAttribPointer(
-   //    positionAttributeLocation, size, type, normalize, stride, offset);
-
-   // var primitiveType = gl.TRIANGLES;
-   // var offset = 0;
-   // var count = 6;
-   // gl.drawArrays(primitiveType, offset, count);
-
+   // Set canvas size
    resizeCanvasToDisplaySize(gl.canvas);
 
    var textureProgram = createProgramFromSource(
@@ -533,12 +489,15 @@ function main() {
       createFragmentShaderSource()
    );
 
+   // Setup texture
    var positionAttributeLocation = gl.getAttribLocation(
       textureProgram,
-      "a_position"
+      "vertex"
    );
 
-   // Create a buffer for position a
+   var timeLocation = gl.getUniformLocation(textureProgram, "time");
+
+   // Create a buffer for vertices
    var positionBuffer = gl.createBuffer();
 
    var vao = gl.createVertexArray();
@@ -588,8 +547,6 @@ function main() {
    );
 
    // Render to the texture
-   
-
    gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
    gl.bindTexture(gl.TEXTURE_2D, texture);
    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
@@ -600,6 +557,10 @@ function main() {
    gl.useProgram(textureProgram);
    gl.bindVertexArray(vao);
 
+   // set uniform
+   var timeSinceStart = new Date() - start;
+   gl.uniform1f(timeLocation, timeSinceStart);
+
    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
    // Render to canvas
@@ -609,10 +570,7 @@ function main() {
       renderFragmentSource
    );
 
-   positionAttributeLocation = gl.getAttribLocation(
-      renderProgram,
-      "a_position"
-   );
+   positionAttributeLocation = gl.getAttribLocation(renderProgram, "vertex");
 
    gl.bindVertexArray(vao);
    gl.enableVertexAttribArray(positionAttributeLocation);
@@ -627,7 +585,7 @@ function main() {
 
    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
    // gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
-   gl.clearColor(0, 0, 0, 0);
+   // gl.clearColor(0, 0, 0, 0);
 
    gl.useProgram(renderProgram);
    gl.bindVertexArray(vao);
