@@ -7,14 +7,17 @@ const glsl = (x) => x;
 // Vertex shader
 const vertexShaderSource = glsl`#version 300 es
    in vec4 a_position;
+
    void main() {
-     gl_Position = a_position;
+      gl_Position = a_position;
    }
 `;
 
 // Fragment shader
 const fragmentShaderHeader = glsl`#version 300 es
    precision mediump float;
+   
+   uniform sampler2D u_texture;
    out vec4 frag_color;
 
    // Image
@@ -24,7 +27,7 @@ const fragmentShaderHeader = glsl`#version 300 es
    const float viewport_height = 2.0;
    const float viewport_width = viewport_height * aspect_ratio;
    const float focal_length = 1.0;
-   const int samples_per_pixel = 100;
+   const int samples_per_pixel = 10;
    const int max_depth = 50;
 
    // Camera
@@ -304,8 +307,6 @@ const rayColor = glsl`
 `;
 
 const fragmentShaderMain = glsl`
-   // World
-   
    void main() {
       // World
       Sphere spheres[2];
@@ -334,7 +335,7 @@ const fragmentShaderMain = glsl`
    }
 `;
 
-function creatFragmentShaderSource() {
+function createFragmentShaderSource() {
    return (
       fragmentShaderHeader +
       degreesToRadians +
@@ -386,7 +387,7 @@ var renderVertexSource = glsl`#version 300 es
    out vec2 v_texcoord;
 
    void main() {
-      v_texcoord = a_texcoord;
+      v_texcoord = a_position.xy * 0.5 + 0.5;
       gl_Position = a_position;
    }
 `;
@@ -477,7 +478,7 @@ function main() {
       return;
    }
 
-   // var fragmentShaderSource = creatFragmentShaderSource();
+   // var fragmentShaderSource = createFragmentShaderSource();
 
    // var textureProgram = createProgramFromSource(gl, vertexShaderSource, fragmentShaderSource);
 
@@ -524,19 +525,17 @@ function main() {
    // var count = 6;
    // gl.drawArrays(primitiveType, offset, count);
 
+   resizeCanvasToDisplaySize(gl.canvas);
+
    var textureProgram = createProgramFromSource(
       gl,
-      textureVertexSource,
-      textureFragmentSource
+      vertexShaderSource,
+      createFragmentShaderSource()
    );
 
    var positionAttributeLocation = gl.getAttribLocation(
       textureProgram,
       "a_position"
-   );
-   var texcoordAttributeLocation = gl.getAttribLocation(
-      textureProgram,
-      "a_texcoord"
    );
 
    // Create a buffer for position a
@@ -550,15 +549,9 @@ function main() {
    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
 
    // Set geometry (i.e. two triangles forming a rectangle)
-   var positions = new Float32Array([-1, -1, -1, 1, 1, -1, 1, -1, -1, 1, 1, 1]);
+   var positions = new Float32Array([-1, -1, -1, 1, 1, -1, 1, 1]);
    gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
    gl.vertexAttribPointer(positionAttributeLocation, 2, gl.FLOAT, false, 0, 0);
-
-   // Create the texcoord buffer and set the ARRAY_BUFFER to it
-   var texcoordBuffer = gl.createBuffer();
-   gl.bindBuffer(gl.ARRAY_BUFFER, texcoordBuffer);
-   gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
-   gl.vertexAttribPointer(texcoordAttributeLocation, 2, gl.FLOAT, true, 0, 0);
 
    // Create texture to render to
    var texture = gl.createTexture();
@@ -575,6 +568,7 @@ function main() {
       gl.UNSIGNED_BYTE,
       null
    );
+   // Skip mipmap
    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -594,7 +588,7 @@ function main() {
    );
 
    // Render to the texture
-   resizeCanvasToDisplaySize(gl.canvas);
+   
 
    gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
    gl.bindTexture(gl.TEXTURE_2D, texture);
@@ -606,7 +600,7 @@ function main() {
    gl.useProgram(textureProgram);
    gl.bindVertexArray(vao);
 
-   gl.drawArrays(gl.TRIANGLES, 0, 6);
+   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
    // Render to canvas
    var renderProgram = createProgramFromSource(
@@ -619,10 +613,6 @@ function main() {
       renderProgram,
       "a_position"
    );
-   texcoordAttributeLocation = gl.getAttribLocation(
-      renderProgram,
-      "a_texcoord"
-   );
 
    gl.bindVertexArray(vao);
    gl.enableVertexAttribArray(positionAttributeLocation);
@@ -631,22 +621,17 @@ function main() {
    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
 
    // Set geometry (i.e. two triangles forming a rectangle)
+   positions = new Float32Array([-1, -1, -1, 1, 1, -1, 1, -1, -1, 1, 1, 1]);
    gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
    gl.vertexAttribPointer(positionAttributeLocation, 2, gl.FLOAT, false, 0, 0);
 
-   // Create the texcoord buffer and set the ARRAY_BUFFER to it
-   gl.bindBuffer(gl.ARRAY_BUFFER, texcoordBuffer);
-   gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
-   gl.vertexAttribPointer(texcoordAttributeLocation, 2, gl.FLOAT, true, 0, 0);
-
    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-   gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+   // gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
    gl.clearColor(0, 0, 0, 0);
 
    gl.useProgram(renderProgram);
    gl.bindVertexArray(vao);
-   gl.drawArrays(gl.TRIANGLES, 0, 6)
-
+   gl.drawArrays(gl.TRIANGLES, 0, 6);
 }
 
 window.onload = main;
