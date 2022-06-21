@@ -248,6 +248,26 @@ const sphereHit = glsl`
       set_face_normal(rec, r, outward_normal);
 
       return true;
+
+      // vec3 oc = r.origin - center;
+      // float b = dot(oc, r.direction);
+      // float c = dot(oc, oc) - radius * radius;
+      // float discriminant = b * b - c;
+      // if (discriminant < 0.0) return false;
+
+      // float s = sqrt(discriminant);
+      // float t1 = -b - s;
+      // float t2 = -b + s;
+      
+      // float t = t1 < t_min ? t2 : t1;
+      // if (t < t_max && t > t_min) {
+      //    rec.t = t;
+      //    rec.p = r.origin + t*r.direction;
+      //    rec.normal = (rec.p - center) / radius;
+      //    return true;
+      // } else {
+      //    return false;
+      // }
    }
 `;
 
@@ -292,11 +312,11 @@ const rayColor = glsl`
 
       for(int i = 0; i < max_depth; ++i) {
          if(hit(spheres, r, 0.0, infinity, rec)) {
-            vec3 target = rec.p + rec.normal + normalize(random_in_unit_sphere(g_seed));
+            vec3 target = normalize(rec.normal + random_in_unit_sphere(g_seed));
             color *= 0.5;
 
             r.origin = rec.p;
-            r.direction = target - rec.p;
+            r.direction = target;
          } else {
             vec3 unit_direction = normalize(r.direction);
             float t = 0.5*(unit_direction.y + 1.0);
@@ -310,6 +330,7 @@ const rayColor = glsl`
 
 const fragmentShaderMain = glsl`
    void main() {
+      vec2 aspect = vec2(600, 338);
       // World
       Sphere spheres[2];
       spheres[0] = Sphere(vec3(0.0, 0.0, -1.0), 0.5);
@@ -327,14 +348,15 @@ const fragmentShaderMain = glsl`
 
          g_seed = float(base_hash(floatBitsToUint(gl_FragCoord.xy)))/float(0xffffffffU)+time;
 
-         float u = (gl_FragCoord.x + rand()) / (image_width - 1.0);
-         float v = (gl_FragCoord.y + rand()) / (image_height - 1.0);
-         Ray r = Ray(eye, lower_left_corner + u*horizontal + v*vertical - eye);
+         // float u = (gl_FragCoord.x + hash(g_seed)) / (image_width - 1.0);
+         // float v = (gl_FragCoord.y + hash(g_seed)) / (image_height - 1.0);
+         vec2 uv = (gl_FragCoord.xy + hash2(g_seed)) / aspect;
+         Ray r = Ray(eye, lower_left_corner + uv.x*horizontal + uv.y*vertical - eye);
          
          // color += clamp(scale*ray_color(r, spheres), 0.0, 0.999);
          color += clamp(ray_color(r, spheres), 0.0, 0.999);
       }
-      vec2 aspect = vec2(600, 338);
+      
       vec3 texture = texture(u_texture, gl_FragCoord.xy / aspect).rgb;
       // vec3 texture = vec3(0.0);
       frag_color = vec4(mix(sqrt(color), texture, textureWeight), 1.0);
@@ -359,13 +381,13 @@ function createFragmentShaderSource() {
 }
 
 var textureVertexSource = glsl`#version 300 es
-   in vec4 a_position;
+   in vec4 vertex;
    in vec2 a_texcoord;
 
    out vec2 v_texcoord;
 
    void main() {
-      gl_Position = a_position;
+      gl_Position = vertex;
 
       v_texcoord = a_texcoord;
    }
@@ -381,8 +403,8 @@ var textureFragmentSource = glsl`#version 300 es
    out vec4 fragColor;
 
    void main() {
-      // fragColor = texture(u_texture, v_texcoord);
-      fragColor = vec4(1.0, 1.0, 0.0, 1.0);
+      vec3 texture = texture(u_texture, v_texcoord).rgb;
+      fragColor = vec4(mix(texture, vec3(1.0, 0.0, 0.0), 0.25), 1.0);
    }
  `;
 
@@ -409,6 +431,186 @@ var renderFragmentSource = glsl`#version 300 es
    void main() {
       fragColor = texture(u_texture, v_texcoord);
    }
+`;
+
+// Shader taken from https://www.shadertoy.com/view/llVcDz
+var reinFragmentSource = glsl`#version 300 es
+   precision mediump float;
+   #define MAX_FLOAT 1e5
+   #define MAX_RECURSION 5
+
+   uniform float time;
+   uniform float textureWeight;
+   uniform sampler2D u_texture;
+   out vec4 frag_color;
+
+   // Image
+   const float aspect_ratio = 16.0 / 9.0;
+   const float image_width = 600.0;
+   const float image_height = image_width / aspect_ratio;
+   const float viewport_height = 2.0;
+   const float viewport_width = viewport_height * aspect_ratio;
+   const float focal_length = 1.0;
+   const int samples_per_pixel = 1;
+   const int max_depth = 50;
+
+   //
+   // Hash functions by Nimitz:
+   // https://www.shadertoy.com/view/Xt3cDn
+   //
+
+   uint base_hash(uvec2 p) {
+      p = 1103515245U*((p >> 1U)^(p.yx));
+      uint h32 = 1103515245U*((p.x)^(p.y>>3U));
+      return h32^(h32 >> 16);
+   }
+
+   float g_seed = 0.;
+
+   vec2 hash2(inout float seed) {
+      uint n = base_hash(floatBitsToUint(vec2(seed+=.1,seed+=.1)));
+      uvec2 rz = uvec2(n, n*48271U);
+      return vec2(rz.xy & uvec2(0x7fffffffU))/float(0x7fffffff);
+   }
+
+   vec3 hash3(inout float seed) {
+      uint n = base_hash(floatBitsToUint(vec2(seed+=.1,seed+=.1)));
+      uvec3 rz = uvec3(n, n*16807U, n*48271U);
+      return vec3(rz & uvec3(0x7fffffffU))/float(0x7fffffff);
+   }
+
+   //
+   // Ray trace helper functions
+   //
+
+   float schlick(float cosine, float ior) {
+      float r0 = (1.-ior)/(1.+ior);
+      r0 = r0*r0;
+      return r0 + (1.-r0)*pow((1.-cosine),5.);
+   }
+
+   vec3 random_in_unit_sphere(inout float seed) {
+      vec3 h = hash3(seed) * vec3(2.,6.28318530718,1.)-vec3(1,0,0);
+      float phi = h.y;
+      float r = pow(h.z, 1./3.);
+      return r * vec3(sqrt(1.-h.x*h.x)*vec2(sin(phi),cos(phi)),h.x);
+   }
+
+   //
+   // Ray
+   //
+
+   struct ray {
+      vec3 origin, direction;
+   };
+      
+   //
+   // Hit record
+   //
+
+   struct hit_record {
+      float t;
+      vec3 p, normal;
+   };
+
+   //
+   // Hitable, for now this is always a sphere
+   //
+
+   struct hitable {
+      vec3 center;
+      float radius;
+   };
+
+   bool hitable_hit(const in hitable hb, const in ray r, const in float t_min, 
+                  const in float t_max, inout hit_record rec) {
+      // always a sphere
+      vec3 oc = r.origin - hb.center;
+      float b = dot(oc, r.direction);
+      float c = dot(oc, oc) - hb.radius * hb.radius;
+      float discriminant = b * b - c;
+      if (discriminant < 0.0) return false;
+
+      float s = sqrt(discriminant);
+      float t1 = -b - s;
+      float t2 = -b + s;
+      
+      float t = t1 < t_min ? t2 : t1;
+      if (t < t_max && t > t_min) {
+         rec.t = t;
+         rec.p = r.origin + t*r.direction;
+         rec.normal = (rec.p - hb.center) / hb.radius;
+         return true;
+      } else {
+         return false;
+      }
+   }
+
+   //
+   // Camera
+   //
+
+   struct camera {
+      vec3 origin, lower_left_corner, horizontal, vertical;
+   };
+
+   ray camera_get_ray(camera c, vec2 uv) {
+      return ray(c.origin, 
+                  normalize(c.lower_left_corner + uv.x*c.horizontal + uv.y*c.vertical - c.origin));
+   }
+
+   //
+   // Color & Scene
+   //
+
+   bool world_hit(const in ray r, const in float t_min, const in float t_max, out hit_record rec) {
+      rec.t = t_max;
+      bool hit = false;
+      
+      hit = hitable_hit(hitable(vec3(0,0,-1), .5), r, t_min, rec.t, rec) || hit;
+      hit = hitable_hit(hitable(vec3(0,-100.5,-1),100.), r, t_min, rec.t, rec) || hit;
+      
+      return hit;
+   }
+
+   vec3 color(in ray r) {
+      vec3 col = vec3(1);  
+      hit_record rec;
+      
+      for (int i=0; i<MAX_RECURSION; i++) {
+         if (world_hit(r, 0.001, MAX_FLOAT, rec)) {
+            vec3 rd = normalize(rec.normal + random_in_unit_sphere(g_seed));
+               col *= .5;
+
+               r.origin = rec.p;
+               r.direction = rd;
+         } else {
+               float t = .5*r.direction.y + .5;
+               col *= mix(vec3(1),vec3(.5,.7,1), t);
+               return col;
+         }
+      }
+      return col;
+   }
+
+   //
+   // Main
+   //
+
+   void main() {
+      vec2 resolution = vec2(600, 338);
+      
+         g_seed = float(base_hash(floatBitsToUint(gl_FragCoord.xy)))/float(0xffffffffU)+time;
+
+         vec2 uv = (gl_FragCoord.xy + hash2(g_seed))/resolution.xy;
+         float aspect = resolution.x/resolution.y;
+
+         ray r = camera_get_ray(camera(vec3(0), vec3(-2,-1,-1), vec3(4,0,0), vec3(0,4./aspect,0)), uv);
+         vec3 col = color(r);
+
+         vec3 texture = texture(u_texture, gl_FragCoord.xy / resolution).rgb;
+         frag_color = vec4(mix(sqrt(col), texture, textureWeight), 1.0);
+   }   
 `;
 
 // Object classes
@@ -474,7 +676,8 @@ function tick(gl, timeSinceStart) {
    var textureProgram = createProgramFromSource(
       gl,
       vertexShaderSource,
-      createFragmentShaderSource()
+      reinFragmentSource
+      // createFragmentShaderSource()
    );
 
    // Setup texture
@@ -503,6 +706,7 @@ function tick(gl, timeSinceStart) {
 
    // Create texture to render to
    var textures = [];
+   gl.activeTexture(gl.TEXTURE0 + 0);
    for (var i = 0; i < 2; i++) {
       textures.push(gl.createTexture());
       gl.bindTexture(gl.TEXTURE_2D, textures[i]);
@@ -524,7 +728,6 @@ function tick(gl, timeSinceStart) {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
    }
    gl.bindTexture(gl.TEXTURE_2D, null);
-   gl.activeTexture(gl.TEXTURE0 + 0);
 
    // Create and bind the framebuffer
    const framebuffer = gl.createFramebuffer();
@@ -534,7 +737,7 @@ function tick(gl, timeSinceStart) {
    var renderProgram = createProgramFromSource(
       gl,
       renderVertexSource,
-      renderFragmentSource
+      createFragmentShaderSource()
    );
 
    var renderVertexAttribute = gl.getAttribLocation(renderProgram, "vertex");
@@ -555,7 +758,7 @@ function tick(gl, timeSinceStart) {
    gl.vertexAttribPointer(renderVertexAttribute, 2, gl.FLOAT, false, 0, 0);
 
    var sampleCount = 0;
-   for (var i = 0; i < 10; i++) {
+   for (var i = 0; i < 100; i++) {
       // Render to the texture
       gl.bindTexture(gl.TEXTURE_2D, textures[0]);
       gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
@@ -573,7 +776,7 @@ function tick(gl, timeSinceStart) {
       gl.bindVertexArray(textureVao);
 
       // set uniforms
-      gl.uniform1f(timeLocation, timeSinceStart + 10);
+      gl.uniform1f(timeLocation, timeSinceStart + i);
       gl.uniform1f(textureWeightLocation, sampleCount / (sampleCount + 1));
       // Draw texture and unbind framebuffer
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
