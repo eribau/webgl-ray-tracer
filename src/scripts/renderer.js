@@ -676,8 +676,8 @@ function tick(gl, timeSinceStart) {
    var textureProgram = createProgramFromSource(
       gl,
       vertexShaderSource,
-      reinFragmentSource
-      // createFragmentShaderSource()
+      // reinFragmentSource
+      createFragmentShaderSource()
    );
 
    // Setup texture
@@ -737,7 +737,7 @@ function tick(gl, timeSinceStart) {
    var renderProgram = createProgramFromSource(
       gl,
       renderVertexSource,
-      createFragmentShaderSource()
+      renderFragmentSource
    );
 
    var renderVertexAttribute = gl.getAttribLocation(renderProgram, "vertex");
