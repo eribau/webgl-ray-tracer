@@ -39,7 +39,7 @@ const fragmentShaderHeader = glsl`#version 300 es
    const vec3 lower_left_corner = eye - horizontal/2.0 - vertical/2.0 - vec3(0.0, 0.0, focal_length);
 
    // Constants
-   float infinity = 10000.0;
+   float infinity = 100000.0;
    float pi = 3.1415926535897932385;
    #define TAU 2. *pi
    // Φ = Golden Ratio
@@ -193,6 +193,19 @@ const rayAt = glsl`
    }  
 `;
 
+const camera = glsl`
+   struct Camera {
+      vec3 origin;
+      vec3 lower_left_corner;
+      vec3 horizontal;
+      vec3 vertical;
+   };
+
+   Ray get_ray(Camera c, float u, float v) {
+      return Ray(c.origin, c.lower_left_corner + u*c.horizontal + v*c.vertical - c.origin);
+   }
+`;
+
 const hit_record = glsl`
    struct Hit_record {
       vec3 p;
@@ -320,8 +333,7 @@ const rayColor = glsl`
          } else {
             vec3 unit_direction = normalize(r.direction);
             float t = 0.5*(unit_direction.y + 1.0);
-            color = mix(vec3(1.0), vec3(0.5, 0.7, 1.0), t);
-            return color;
+            return color = mix(vec3(1.0), vec3(0.5, 0.7, 1.0), t);
          }
       }
       return color;
@@ -336,26 +348,32 @@ const fragmentShaderMain = glsl`
       spheres[0] = Sphere(vec3(0.0, 0.0, -1.0), 0.5);
       spheres[1] = Sphere(vec3(0.0, -100.5, -1.0), 100.0);
 
-      float f_samples_per_pixel = float(samples_per_pixel);
-      float scale = 1.0 / f_samples_per_pixel;
-      vec3 color = vec3(0.0, 0.0, 0.0);
-      for(int s = 0; s < samples_per_pixel; ++s) {
+      // float f_samples_per_pixel = float(samples_per_pixel);
+      // float scale = 1.0 / f_samples_per_pixel;
+      // vec3 color = vec3(0.0, 0.0, 0.0);
+      // for(int s = 0; s < samples_per_pixel; ++s) {
 
          // g_seed = random(gl_FragCoord.xy * (mod(float(s+11), 100.)));
-         // if(isnan(g_seed)){
-         //   g_seed = 0.25;
-         // }
+      //    // if(isnan(g_seed)){
+      //    //   g_seed = 0.25;
+      //    // }
 
          g_seed = float(base_hash(floatBitsToUint(gl_FragCoord.xy)))/float(0xffffffffU)+time;
 
-         // float u = (gl_FragCoord.x + hash(g_seed)) / (image_width - 1.0);
-         // float v = (gl_FragCoord.y + hash(g_seed)) / (image_height - 1.0);
-         vec2 uv = (gl_FragCoord.xy + hash2(g_seed)) / aspect;
-         Ray r = Ray(eye, lower_left_corner + uv.x*horizontal + uv.y*vertical - eye);
+      //    // float u = (gl_FragCoord.x + hash(g_seed)) / (image_width - 1.0);
+      //    // float v = (gl_FragCoord.y + hash(g_seed)) / (image_height - 1.0);
+      //    vec2 uv = (gl_FragCoord.xy + hash2(g_seed)) / aspect;
+      //    Ray r = Ray(eye, lower_left_corner + uv.x*horizontal + uv.y*vertical - eye);
          
-         // color += clamp(scale*ray_color(r, spheres), 0.0, 0.999);
-         color += clamp(ray_color(r, spheres), 0.0, 0.999);
-      }
+      //    // color += clamp(scale*ray_color(r, spheres), 0.0, 0.999);
+      //    color += clamp(ray_color(r, spheres), 0.0, 0.999);
+      // }
+
+      vec2 uv = (gl_FragCoord.xy + hash2(g_seed)) / aspect;
+      // Ray r = Ray(eye, lower_left_corner + uv.x*horizontal + uv.y*vertical - eye);
+      Camera c = Camera(vec3(0), vec3(-2, -1, -1), vec3(4, 0, 0), vec3(0, 4.0 * aspect.y/aspect.x, 0));
+      Ray r = get_ray(c, uv.x, uv.y);
+      vec3 color = clamp(ray_color(r, spheres), 0.0, 0.999);
       
       vec3 texture = texture(u_texture, gl_FragCoord.xy / aspect).rgb;
       // vec3 texture = vec3(0.0);
@@ -370,6 +388,7 @@ function createFragmentShaderSource() {
       random +
       ray +
       rayAt +
+      camera +
       hit_record +
       setFaceNormal +
       sphere +
@@ -600,16 +619,13 @@ var reinFragmentSource = glsl`#version 300 es
    void main() {
       vec2 resolution = vec2(600, 338);
       
-         g_seed = float(base_hash(floatBitsToUint(gl_FragCoord.xy)))/float(0xffffffffU)+time;
-
-         vec2 uv = (gl_FragCoord.xy + hash2(g_seed))/resolution.xy;
-         float aspect = resolution.x/resolution.y;
-
-         ray r = camera_get_ray(camera(vec3(0), vec3(-2,-1,-1), vec3(4,0,0), vec3(0,4./aspect,0)), uv);
-         vec3 col = color(r);
-
-         vec3 texture = texture(u_texture, gl_FragCoord.xy / resolution).rgb;
-         frag_color = vec4(mix(sqrt(col), texture, textureWeight), 1.0);
+      g_seed = float(base_hash(floatBitsToUint(gl_FragCoord.xy)))/float(0xffffffffU)+time;
+      vec2 uv = (gl_FragCoord.xy + hash2(g_seed))/resolution.xy;
+      float aspect = resolution.x/resolution.y;
+      ray r = camera_get_ray(camera(vec3(0), vec3(-2,-1,-1), vec3(4,0,0), vec3(0,4./aspect,0)), uv);
+      vec3 col = color(r);
+      vec3 texture = texture(u_texture, gl_FragCoord.xy / resolution).rgb;
+      frag_color = vec4(mix(sqrt(col), texture, textureWeight), 1.0);
    }   
 `;
 
