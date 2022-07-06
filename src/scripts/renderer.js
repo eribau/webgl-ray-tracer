@@ -80,6 +80,15 @@ const random = glsl`
       float r = pow(h.z, 1./3.);
       return r * vec3(sqrt(1.-h.x*h.x)*vec2(sin(phi),cos(phi)),h.x);
    }
+
+   vec3 random_in_hemisphere(in vec3 normal) {
+      vec3 in_unit_sphere = random_in_unit_sphere(g_seed);
+      if(dot(in_unit_sphere, normal) > 0.0) {
+         return in_unit_sphere;
+      } else {
+         return -in_unit_sphere;
+      }
+   }
 `;
 
 const ray = glsl`
@@ -192,7 +201,8 @@ const rayColor = glsl`
 
       for(int i = 0; i < max_depth; i++) {
          if(hit(spheres, r, 0.001, infinity, rec)) {
-            vec3 target = rec.normal + normalize(random_in_unit_sphere(g_seed));
+            // vec3 target = rec.normal + normalize(random_in_unit_sphere(g_seed));
+            vec3 target = random_in_hemisphere(rec.normal);
             color *= 0.5;
 
             r.origin = rec.p;
