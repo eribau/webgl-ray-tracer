@@ -126,6 +126,7 @@ const material = glsl`
    struct Material {
       int material; // 0 = lambertian, 1 = metal
       vec3 albedo;
+      float fuzz;
    };
 `;
 
@@ -160,7 +161,7 @@ const scatter = glsl`
 
    bool metal_scatter(in Ray r_in, in Hit_record rec, inout vec3 attenuation, inout Ray scattered) {
       vec3 reflected = reflect(normalize(r_in.direction), rec.normal);
-      scattered = Ray(rec.p, reflected);
+      scattered = Ray(rec.p, reflected + rec.material.fuzz*random_in_unit_sphere(g_seed));
       attenuation = rec.material.albedo;
       return (dot(scattered.direction, rec.normal) > 0.0);
    }
@@ -276,10 +277,10 @@ const fragmentShaderMain = glsl`
       float aspect = resolution.x / resolution.y;
 
       // Materials
-      Material material_ground = Material(0, vec3(0.8, 0.8, 0.0));
-      Material material_center = Material(0, vec3(0.7, 0.3, 0.3));
-      Material material_left = Material(1, vec3(0.8));
-      Material material_right = Material(1, vec3(0.8, 0.6, 0.2));
+      Material material_ground = Material(0, vec3(0.8, 0.8, 0.0), 0.0);
+      Material material_center = Material(0, vec3(0.7, 0.3, 0.3), 0.0);
+      Material material_left = Material(1, vec3(0.8), 0.3);
+      Material material_right = Material(1, vec3(0.8, 0.6, 0.2), 1.0);
 
       // World
       Sphere spheres[4];
