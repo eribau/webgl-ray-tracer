@@ -11,6 +11,6 @@ In the Ray Tracing in one Weekend book it's done recursively but that's not poss
 
 The second problem was that in the same function, but when I did not register a hit I set the color to be the color of the background (or the sky), but I should of course multiply the accumulated color with the color of the background.
 
-![Frustration](../images/lambertian.png "Lambertian reflection!")
+![Lambertian reflection](../images/lambertian.png "Lambertian reflection!")
 
 Something else I've done is to move the antialiasing loop out of the shader code. Instead I draw the result to a texture that I can render to the canvas. I have another texture that I read from inside the shader and I switch between these textures so in one iteration I'm reading the previously rendered texture from one of them and drawing to the other, "ping-ponging" between the textures. On each iteration I add a little less of the new rendering and a little more of the old and since I'm always adding a little bit of randomness to the rays that are cast the image gets finer and finer. I got the idea from [this](https://madebyevan.com/webgl-path-tracing/).

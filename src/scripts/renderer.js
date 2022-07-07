@@ -331,7 +331,7 @@ const fragmentShaderMain = glsl`
       Sphere spheres[4];
       spheres[0] = Sphere(vec3(0.0, 0.0, -1.0), 0.5, material_center);
       spheres[1] = Sphere(vec3(0.0, -100.5, -1.0), 100.0, material_ground);
-      spheres[2] = Sphere(vec3(-1.0, 0.0, -1.0), -0.4, material_left);
+      spheres[2] = Sphere(vec3(-1.0, 0.0, -1.0), 0.5, material_left);
       spheres[3] = Sphere(vec3(1.0, 0.0, -1.0), 0.5, material_right);
 
       // Set random generator seed
