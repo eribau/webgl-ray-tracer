@@ -54,6 +54,13 @@ const degreesToRadians = glsl`
       float s = 1e-8;
       return (vec.x < s) && (vec.y < s) && (vec.z < s);
    }
+
+   vec3 refraction(vec3 uv, vec3 n, float etai_over_etat) {
+      float cos_theta = min(dot(-uv, n), 1.0);
+      vec3 r_out_perp = etai_over_etat * (uv + cos_theta*n);
+      vec3 r_out_parallel = -sqrt(abs(1.0 - dot(r_out_perp, r_out_perp)))*n;
+      return r_out_perp + r_out_parallel;
+   }
 `;
 
 const random = glsl`
@@ -124,9 +131,10 @@ const camera = glsl`
 
 const material = glsl`
    struct Material {
-      int material; // 0 = lambertian, 1 = metal
+      int material; // 0 = lambertian, 1 = metal, 2 = dielectric
       vec3 albedo;
-      float fuzz;
+      float fuzz; 
+      float ir; // index of reflection for dielectrics
    };
 `;
 
@@ -164,6 +172,17 @@ const scatter = glsl`
       scattered = Ray(rec.p, reflected + rec.material.fuzz*random_in_unit_sphere(g_seed));
       attenuation = rec.material.albedo;
       return (dot(scattered.direction, rec.normal) > 0.0);
+   }
+
+   bool dielectric_scatter(in Ray r_in, in Hit_record rec, inout vec3 attenuation, inout Ray scattered) {
+      attenuation = vec3(1.0);
+      float refraction_ratio = rec.front_face ? (1.0/rec.material.ir) : rec.material.ir;
+
+      vec3 unit_direction = normalize(r_in.direction);
+      vec3 refracted = refract(unit_direction, rec.normal, refraction_ratio);
+
+      scattered = Ray(rec.p, refracted);
+      return true;
    }
 `;
 
@@ -259,6 +278,14 @@ const rayColor = glsl`
 
                      r = scattered;
                   }
+                  break;
+               case 2:
+                  if(dielectric_scatter(r, rec, attenuation, scattered)) {
+                     color *= attenuation;
+
+                     r = scattered;
+                  }
+                  break;
             }
          } else {
             vec3 unit_direction = normalize(r.direction);
@@ -277,10 +304,10 @@ const fragmentShaderMain = glsl`
       float aspect = resolution.x / resolution.y;
 
       // Materials
-      Material material_ground = Material(0, vec3(0.8, 0.8, 0.0), 0.0);
-      Material material_center = Material(0, vec3(0.7, 0.3, 0.3), 0.0);
-      Material material_left = Material(1, vec3(0.8), 0.3);
-      Material material_right = Material(1, vec3(0.8, 0.6, 0.2), 1.0);
+      Material material_ground = Material(0, vec3(0.8, 0.8, 0.0), 0.0, 0.0);
+      Material material_center = Material(2, vec3(0.7, 0.3, 0.3), 0.0, 1.5);
+      Material material_left = Material(2, vec3(0.8, 0.8, 0.8), 0.3, 1.5);
+      Material material_right = Material(1, vec3(0.8, 0.6, 0.2), 1.0, 0.0);
 
       // World
       Sphere spheres[4];
