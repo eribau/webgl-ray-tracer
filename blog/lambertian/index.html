@@ -13,7 +13,7 @@
    
    
 
-   <link rel="stylesheet" media="print" href="/fonts/fonts.css?0e5b-53aa-f40c" onload="this.media='all'" />
+   <link rel="stylesheet" media="print" href="/fonts/fonts.css?6df3-0c72-8058" onload="this.media='all'" />
 
    
    
@@ -56,12 +56,26 @@
       
          <li>
             <article class="post">
+               <h1>Living in the material world</h1>
+               <time datetime="2022-07-07T00:00:00.000Z">7th of July 2022</time>
+               <p>I've added other materials than the lambertian reflection model to the code. The first one is a metal material that reflects the light of it. It has a variable for controlling fuzziness, which basically means that incoming rays are reflected back with some randomness added to their direction.</p>
+<figure><img src="../images/fuzzy_metal.png" alt="Metallic spheres"><figcaption>Sphere with lambertian reflection at the center alongside two metal spheres displaying varying degrees of fuzziness.</figcaption></figure>
+<p>The other material is a dielectric one, i.e. incoming light is both reflected and transmitted through the material. I'm not quite sure however if I've managed to get it to work properly. The reflection in the sphere looks different from the example image in the book, or it looks different when I add the Schlick approximation. The only difference that I can think of right now however is the function for generating random numbers, but it's possible that there is something else that I'm missing.</p>
+<figure><img src="../images/dielectrics.png" alt="Dielectric spheres"><figcaption>Sphere on the left with dielectric material.</figcaption></figure>
+
+            </article>
+         </li>
+         
+      
+      
+         <li>
+            <article class="post">
                <h1>Fixed the lambertian reflection!</h1>
                <time datetime="2022-07-06T00:00:00.000Z">6th of July 2022</time>
                <p>Finally, I managed to get the lambertian reflection to work! I found a working <a href="https://www.shadertoy.com/view/llVcDz">glsl shader implementation</a> of the weekend ray tracer that I could compare my code to which helped me. First of, I replaced the functions I had for generating pseudo random numbers with the one from that code. Troubleshooting that code is not easy so using something I know works seemed like a better idea. I then compared their code with mine and two major issues, one was the way I was iterating over the ray hits.</p>
 <p>In the Ray Tracing in one Weekend book it's done recursively but that's not possible in webGL and my implementation had some problem so I had to change it slightly. I was trying to sum the effects of each iteration on the color in one variable and then multiply the color by the final result, but now I instead just set the color to all white at the start and then multiply it by 0.5 each iteration where it hits something.</p>
 <p>The second problem was that in the same function, but when I did not register a hit I set the color to be the color of the background (or the sky), but I should of course multiply the accumulated color with the color of the background.</p>
-<figure><img src="../images/lambertian.png" alt="Frustration"><figcaption>Lambertian reflection!</figcaption></figure>
+<figure><img src="../images/lambertian.png" alt="Lambertian reflection"><figcaption>Lambertian reflection!</figcaption></figure>
 <p>Something else I've done is to move the antialiasing loop out of the shader code. Instead I draw the result to a texture that I can render to the canvas. I have another texture that I read from inside the shader and I switch between these textures so in one iteration I'm reading the previously rendered texture from one of them and drawing to the other, &quot;ping-ponging&quot; between the textures. On each iteration I add a little less of the new rendering and a little more of the old and since I'm always adding a little bit of randomness to the rays that are cast the image gets finer and finer. I got the idea from <a href="https://madebyevan.com/webgl-path-tracing/">this</a>.</p>
 
             </article>
@@ -87,7 +101,7 @@
                <h1>More spheres</h1>
                <time datetime="2022-05-29T00:00:00.000Z">29th of May 2022</time>
                <p>I added some basic support in the shader for more than one sphere. Took me a while to figure out that you have to add an &quot;out&quot; qualifier to function's input parameters that are to be changed, similar to pass-by-reference in c++.</p>
-<figure><img src="../images/ground.png" alt="Now with more ground"><figcaption>Now with some ground.</figcaption></figure>
+<figure><img src="../images/ground.png" alt="Now with more ground"><figcaption>Now with more ground.</figcaption></figure>
 
             </article>
          </li>
