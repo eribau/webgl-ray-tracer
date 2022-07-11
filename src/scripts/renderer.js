@@ -42,6 +42,7 @@ const fragmentShaderHeader = glsl`#version 300 es
    float infinity = 100000.0;
    float pi = 3.1415926535897932385;
    #define TAU 2. *pi
+   #define NUMBER_OF_SPHERES 2
 `;
 
 // Utilities
@@ -135,16 +136,36 @@ const camera = glsl`
       vec3 lower_left_corner;
    };
 
+   Camera init_camera(float vfov, float aspect_ratio) {
+      float theta = degrees_to_radians(vfov);
+      float h = tan(theta/2.0);
+      float viewport_height = 2.0 * h;
+      float viewport_width = aspect_ratio * viewport_height;
+
+      float focal_length = 1.0;
+
+      vec3 origin = vec3(0.0);
+      vec3 horizontal = vec3(viewport_width, 0.0, 0.0);
+      vec3 vertical = vec3(0.0, viewport_height, 0.0);
+      vec3 lower_left_corner = origin - horizontal/2.0 - vertical/2.0 - vec3(0.0, 0.0, focal_length);
+
+      return Camera(origin, horizontal, vertical, lower_left_corner);
+   }
+
    Ray get_ray(Camera c, float u, float v) {
       return Ray(c.origin, normalize(c.lower_left_corner + u*c.horizontal + v*c.vertical - c.origin));
    }
 `;
 
 const material = glsl`
+   #define LAMBERTIAN 0
+   #define METAL 1
+   #define DIELECTRIC 2
+
    struct Material {
-      int material; // 0 = lambertian, 1 = metal, 2 = dielectric
-      vec3 albedo;
-      float fuzz; 
+      int type; // 0 = lambertian, 1 = metal, 2 = dielectric
+      vec3 albedo; // The color of the material
+      float fuzz; // Metallic fuzziness
       float ir; // index of reflection for dielectrics
    };
 `;
@@ -168,7 +189,8 @@ const setFaceNormal = glsl`
 
 const scatter = glsl`
    bool lambertian_scatter(in Hit_record rec, inout vec3 attenuation, inout Ray scattered) {
-      vec3 scatter_direction = random_in_hemisphere(rec.normal);
+      // vec3 scatter_direction = random_in_hemisphere(rec.normal);
+      vec3 scatter_direction = normalize(rec.normal + random_in_unit_sphere(g_seed));
 
       if(near_zero(scatter_direction)) {
          scatter_direction = rec.normal;
@@ -204,6 +226,22 @@ const scatter = glsl`
 
       scattered = Ray(rec.p, direction);
       return true;
+   }
+
+   bool scatter(in Ray r_in, in Hit_record rec, inout vec3 attenuation, inout Ray scattered) {
+      switch (rec.material.type) {
+         case LAMBERTIAN:
+            return lambertian_scatter(rec, attenuation, scattered);
+            break;
+         case METAL:
+            return metal_scatter(r_in, rec, attenuation, scattered);
+            break;
+         case DIELECTRIC:
+            return dielectric_scatter(r_in, rec, attenuation, scattered);
+            break;
+         default:
+            return false;
+      }
    }
 `;
 
@@ -251,12 +289,12 @@ const sphereHit = glsl`
 `;
 
 const hit = glsl`
-   bool hit(Sphere spheres[4], Ray r, float t_min, float t_max, out Hit_record rec) {
+   bool hit(Sphere spheres[NUMBER_OF_SPHERES], Ray r, float t_min, float t_max, out Hit_record rec) {
       Hit_record temp_rec;
       bool hit_anything = false;
       float closest_so_far = t_max;
 
-      for(int i = 0; i < 4; i++) {
+      for(int i = 0; i < NUMBER_OF_SPHERES; i++) {
          // TODO Rewrite hit_sphere to use Sphere instead of center and radius 
          if(hit_sphere(spheres[i], r, t_min, closest_so_far, temp_rec)) {
             hit_anything = true;
@@ -270,40 +308,20 @@ const hit = glsl`
 `;
 
 const rayColor = glsl`
-   vec3 ray_color(Ray r, Sphere spheres[4]) {
+   vec3 ray_color(Ray r, Sphere spheres[NUMBER_OF_SPHERES]) {
       Hit_record rec;
       vec3 color = vec3(1.0);
 
       for(int i = 0; i < max_depth; i++) {
          if(hit(spheres, r, 0.001, infinity, rec)) {
-            // vec3 target = rec.normal + normalize(random_in_unit_sphere(g_seed));
-            // vec3 target = random_in_hemisphere(rec.normal);
-            // color *= 0.5;
-
-            // r.origin = rec.p;
-            // r.direction = target;
             Ray scattered;
             vec3 attenuation;
-            
-            switch (rec.material.material) {
-               case 0:
-                  if(lambertian_scatter(rec, attenuation, scattered)) {
-                     color *= attenuation;
-                     r = scattered;
-                  }
-                  break;
-               case 1:
-                  if(metal_scatter(r, rec, attenuation, scattered)) {
-                     color *= attenuation;
-                     r = scattered;
-                  }
-                  break;
-               case 2:
-                  if(dielectric_scatter(r, rec, attenuation, scattered)) {
-                     color *= attenuation;
-                     r = scattered;
-                  }
-                  break;
+
+            if(scatter(r, rec, attenuation, scattered)) {
+               color *= attenuation;
+               r = scattered;
+            } else {
+               return vec3(0.0);
             }
          } else {
             vec3 unit_direction = normalize(r.direction);
@@ -322,17 +340,22 @@ const fragmentShaderMain = glsl`
       float aspect = resolution.x / resolution.y;
 
       // Materials
-      Material material_ground = Material(0, vec3(0.8, 0.8, 0.0), 0.0, 0.0);
-      Material material_center = Material(0, vec3(0.1, 0.2, 0.5), 0.0, 0.0);
-      Material material_left = Material(2, vec3(0.8, 0.8, 0.8), 0.3, 1.5);
-      Material material_right = Material(1, vec3(0.8, 0.6, 0.2), 0.0, 0.0);
+      // Material material_ground = Material(0, vec3(0.8, 0.8, 0.0), 0.0, 0.0);
+      // Material material_center = Material(0, vec3(0.1, 0.2, 0.5), 0.0, 0.0);
+      // Material material_left = Material(2, vec3(0.8, 0.8, 0.8), 0.3, 1.5);
+      // Material material_right = Material(1, vec3(0.8, 0.6, 0.2), 0.0, 0.0);
+      Material material_left = Material(0, vec3(0.0, 0.0, 1.0), 0.0, 0.0);
+      Material material_right = Material(0, vec3(1.0, 0.0, 0.0), 0.0, 0.0);
 
-      // World
-      Sphere spheres[4];
-      spheres[0] = Sphere(vec3(0.0, 0.0, -1.0), 0.5, material_center);
-      spheres[1] = Sphere(vec3(0.0, -100.5, -1.0), 100.0, material_ground);
-      spheres[2] = Sphere(vec3(-1.0, 0.0, -1.0), 0.5, material_left);
-      spheres[3] = Sphere(vec3(1.0, 0.0, -1.0), 0.5, material_right);
+      // // World
+      Sphere spheres[NUMBER_OF_SPHERES];
+      // spheres[0] = Sphere(vec3(0.0, 0.0, -1.0), 0.5, material_center);
+      // spheres[1] = Sphere(vec3(0.0, -100.5, -1.0), 100.0, material_ground);
+      // spheres[2] = Sphere(vec3(-1.0, 0.0, -1.0), -0.4, material_left);
+      // spheres[3] = Sphere(vec3(1.0, 0.0, -1.0), 0.5, material_right);
+      float R = cos(pi/4.0);
+      spheres[0] = Sphere(vec3(-R, 0.0, -1.0), R, material_left);
+      spheres[1] = Sphere(vec3(R, 0.0, -1.0), R, material_right);
 
       // Set random generator seed
       g_seed = float(base_hash(floatBitsToUint(gl_FragCoord.xy)))/float(0xffffffffU)+time;
@@ -341,7 +364,8 @@ const fragmentShaderMain = glsl`
       vec2 uv = (gl_FragCoord.xy + hash2(g_seed)) / resolution;
 
       // Setup the camera
-      Camera c = Camera(origin, horizontal, vertical, lower_left_corner);
+      // Camera c = Camera(origin, horizontal, vertical, lower_left_corner);
+      Camera c = init_camera(90.0, aspect);
 
       // Get the ray and the calculate the color for that "pixel"
       Ray r = get_ray(c, uv.x, uv.y);
