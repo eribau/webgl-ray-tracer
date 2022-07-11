@@ -42,7 +42,7 @@ const fragmentShaderHeader = glsl`#version 300 es
    float infinity = 100000.0;
    float pi = 3.1415926535897932385;
    #define TAU 2. *pi
-   #define NUMBER_OF_SPHERES 2
+   #define NUMBER_OF_SPHERES 4
 `;
 
 // Utilities
@@ -136,18 +136,20 @@ const camera = glsl`
       vec3 lower_left_corner;
    };
 
-   Camera init_camera(float vfov, float aspect_ratio) {
+   Camera init_camera(vec3 lookfrom, vec3 lookat, vec3 vup, float vfov, float aspect_ratio) {
       float theta = degrees_to_radians(vfov);
       float h = tan(theta/2.0);
       float viewport_height = 2.0 * h;
       float viewport_width = aspect_ratio * viewport_height;
 
-      float focal_length = 1.0;
+      vec3 w = normalize(lookfrom - lookat);
+      vec3 u = normalize(cross(vup, w));
+      vec3 v = cross(w, u);
 
-      vec3 origin = vec3(0.0);
-      vec3 horizontal = vec3(viewport_width, 0.0, 0.0);
-      vec3 vertical = vec3(0.0, viewport_height, 0.0);
-      vec3 lower_left_corner = origin - horizontal/2.0 - vertical/2.0 - vec3(0.0, 0.0, focal_length);
+      vec3 origin = lookfrom;
+      vec3 horizontal = viewport_width * u;
+      vec3 vertical = viewport_height * v;
+      vec3 lower_left_corner = origin - horizontal/2.0 - vertical/2.0 - w;
 
       return Camera(origin, horizontal, vertical, lower_left_corner);
    }
@@ -340,22 +342,22 @@ const fragmentShaderMain = glsl`
       float aspect = resolution.x / resolution.y;
 
       // Materials
-      // Material material_ground = Material(0, vec3(0.8, 0.8, 0.0), 0.0, 0.0);
-      // Material material_center = Material(0, vec3(0.1, 0.2, 0.5), 0.0, 0.0);
-      // Material material_left = Material(2, vec3(0.8, 0.8, 0.8), 0.3, 1.5);
-      // Material material_right = Material(1, vec3(0.8, 0.6, 0.2), 0.0, 0.0);
-      Material material_left = Material(0, vec3(0.0, 0.0, 1.0), 0.0, 0.0);
-      Material material_right = Material(0, vec3(1.0, 0.0, 0.0), 0.0, 0.0);
+      Material material_ground = Material(0, vec3(0.8, 0.8, 0.0), 0.0, 0.0);
+      Material material_center = Material(0, vec3(0.1, 0.2, 0.5), 0.0, 0.0);
+      Material material_left = Material(2, vec3(0.8, 0.8, 0.8), 0.3, 1.5);
+      Material material_right = Material(1, vec3(0.8, 0.6, 0.2), 0.0, 0.0);
+      // Material material_left = Material(0, vec3(0.0, 0.0, 1.0), 0.0, 0.0);
+      // Material material_right = Material(0, vec3(1.0, 0.0, 0.0), 0.0, 0.0);
 
       // // World
       Sphere spheres[NUMBER_OF_SPHERES];
-      // spheres[0] = Sphere(vec3(0.0, 0.0, -1.0), 0.5, material_center);
-      // spheres[1] = Sphere(vec3(0.0, -100.5, -1.0), 100.0, material_ground);
-      // spheres[2] = Sphere(vec3(-1.0, 0.0, -1.0), -0.4, material_left);
-      // spheres[3] = Sphere(vec3(1.0, 0.0, -1.0), 0.5, material_right);
-      float R = cos(pi/4.0);
-      spheres[0] = Sphere(vec3(-R, 0.0, -1.0), R, material_left);
-      spheres[1] = Sphere(vec3(R, 0.0, -1.0), R, material_right);
+      spheres[0] = Sphere(vec3(0.0, 0.0, -1.0), 0.5, material_center);
+      spheres[1] = Sphere(vec3(0.0, -100.5, -1.0), 100.0, material_ground);
+      spheres[2] = Sphere(vec3(-1.0, 0.0, -1.0), -0.45, material_left);
+      spheres[3] = Sphere(vec3(1.0, 0.0, -1.0), 0.5, material_right);
+      // float R = cos(pi/4.0);
+      // spheres[0] = Sphere(vec3(-R, 0.0, -1.0), R, material_left);
+      // spheres[1] = Sphere(vec3(R, 0.0, -1.0), R, material_right);
 
       // Set random generator seed
       g_seed = float(base_hash(floatBitsToUint(gl_FragCoord.xy)))/float(0xffffffffU)+time;
@@ -365,7 +367,7 @@ const fragmentShaderMain = glsl`
 
       // Setup the camera
       // Camera c = Camera(origin, horizontal, vertical, lower_left_corner);
-      Camera c = init_camera(90.0, aspect);
+      Camera c = init_camera(vec3(-2., 2., 1.), vec3(0., 0., -1.), vec3(0., 1., 0.), 20.0, aspect);
 
       // Get the ray and the calculate the color for that "pixel"
       Ray r = get_ray(c, uv.x, uv.y);
