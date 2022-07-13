@@ -16,7 +16,7 @@ const vertexShaderSource = glsl`#version 300 es
 // Fragment shader
 const fragmentShaderHeader = glsl`#version 300 es
    precision mediump float;
-   
+
    uniform float time;
    uniform float textureWeight;
    uniform sampler2D u_texture;
@@ -56,6 +56,10 @@ const degreesToRadians = glsl`
       return (vec.x < s) && (vec.y < s) && (vec.z < s);
    }
 
+   vec3 reflection(in vec3 v, in vec3 n) {
+      return v - 2.0*dot(v, n)*n;
+   }
+
    vec3 refraction(vec3 uv, vec3 n, float etai_over_etat) {
       float cos_theta = min(dot(-uv, n), 1.0);
       vec3 r_out_perp = etai_over_etat * (uv + cos_theta*n);
@@ -63,11 +67,29 @@ const degreesToRadians = glsl`
       return r_out_perp + r_out_parallel;
    }
 
-   float reflectance(float cosine, float ref_idx) {
+   float reflectance(const in float cosine, const in float ref_idx) {
       float r0 = (1.0 - ref_idx) / (1.0 + ref_idx);
       r0 = r0*r0;
       return r0 + (1.0 - r0)*pow((1.0 - cosine), 5.0);
    }
+
+   bool modified_refract(const in vec3 v, const in vec3 n, const in float ni_over_nt,
+      out vec3 refracted) {
+      float dt = dot(v, n);
+      float discriminant = 1. - ni_over_nt*ni_over_nt*(1.-dt*dt);
+      if (discriminant > 0.) {
+         refracted = ni_over_nt*(v - n*dt) - n*sqrt(discriminant);
+         return true;
+      } else {
+         return false;
+      }
+   }
+
+   float schlick(float cosine, float ior) {
+      float r0 = (1.-ior)/(1.+ior);
+      r0 = r0*r0;
+      return r0 + (1.-r0)*pow((1.-cosine),5.);
+  }
 `;
 
 const random = glsl`
@@ -98,6 +120,13 @@ const random = glsl`
        return vec3(rz & uvec3(0x7fffffffU))/float(0x7fffffff);
    }
 
+   vec2 random_in_unit_disk(inout float seed) {
+      vec2 h = hash2(seed) * vec2(1.,6.28318530718);
+      float phi = h.y;
+      float r = sqrt(h.x);
+     return r * vec2(sin(phi),cos(phi));
+   }
+
    vec3 random_in_unit_sphere(inout float seed) {
       vec3 h = hash3(seed) * vec3(2.,TAU,1.)-vec3(1,0,0);
       float phi = h.y;
@@ -125,7 +154,7 @@ const ray = glsl`
 const rayAt = glsl`
    vec3 at(Ray r, float t) {
       return r.origin + t*r.direction;
-   }  
+   }
 `;
 
 const camera = glsl`
@@ -134,9 +163,11 @@ const camera = glsl`
       vec3 horizontal;
       vec3 vertical;
       vec3 lower_left_corner;
+      float lens_radius;
+      vec3 u, v, w;
    };
 
-   Camera init_camera(vec3 lookfrom, vec3 lookat, vec3 vup, float vfov, float aspect_ratio) {
+   Camera init_camera(vec3 lookfrom, vec3 lookat, vec3 vup, float vfov, float aspect_ratio, float aperture, float focus_dist) {
       float theta = degrees_to_radians(vfov);
       float h = tan(theta/2.0);
       float viewport_height = 2.0 * h;
@@ -147,15 +178,20 @@ const camera = glsl`
       vec3 v = cross(w, u);
 
       vec3 origin = lookfrom;
-      vec3 horizontal = viewport_width * u;
-      vec3 vertical = viewport_height * v;
-      vec3 lower_left_corner = origin - horizontal/2.0 - vertical/2.0 - w;
+      vec3 horizontal = focus_dist * viewport_width * u;
+      vec3 vertical = focus_dist * viewport_height * v;
+      vec3 lower_left_corner = origin - horizontal/2.0 - vertical/2.0 - focus_dist*w;
 
-      return Camera(origin, horizontal, vertical, lower_left_corner);
+      float lens_radius = aperture / 2.0;
+
+      return Camera(origin, horizontal, vertical, lower_left_corner, lens_radius, u, v, w);
    }
 
-   Ray get_ray(Camera c, float u, float v) {
-      return Ray(c.origin, normalize(c.lower_left_corner + u*c.horizontal + v*c.vertical - c.origin));
+   Ray get_ray(Camera c, float s, float t) {
+      vec2 rd = c.lens_radius * random_in_unit_disk(g_seed);
+      vec3 offset = c.u * rd.x + c.v * rd.y;
+
+      return Ray(c.origin + offset, normalize(c.lower_left_corner + s*c.horizontal + t*c.vertical - c.origin - offset));
    }
 `;
 
@@ -228,6 +264,37 @@ const scatter = glsl`
 
       scattered = Ray(rec.p, direction);
       return true;
+
+      // vec3 outwardNormal = vec3(0);
+      // vec3 reflected = reflect(r_in.direction, rec.normal);
+      // float niOverNt = 0.0;
+      // float reflectionIndex = rec.material.ir;
+      // attenuation = vec3(1.0);
+      // vec3 refracted = vec3(0);
+      // float reflectProbability = 0.0;
+      // float cosine = 0.0;
+      // if (dot(r_in.direction, rec.normal) > 0.0) {
+      //   outwardNormal = -rec.normal;
+      //   niOverNt = reflectionIndex;
+      //   cosine = reflectionIndex * dot(r_in.direction, rec.normal) / length(r_in.direction);
+      // } else {
+      //   outwardNormal = rec.normal;
+      //   niOverNt = 1.0 / reflectionIndex;
+      //   cosine = -dot(r_in.direction, rec.normal) / length(r_in.direction);
+      // }
+      // if(modified_refract(r_in.direction, outwardNormal, niOverNt, refracted)) {
+      // //   scattered = Ray(rec.p, refracted);
+      //   reflectProbability = schlick(cosine, rec.material.ir);
+      // } else {
+      // //   scattered = Ray(rec.p, reflected);
+      //   reflectProbability = 1.0;
+      // }
+      // if (hash1(g_seed) < reflectProbability) {
+      //   scattered = Ray(rec.p, reflected);
+      // } else {
+      //   scattered = Ray(rec.p, refracted);
+      // }
+      // return true;
    }
 
    bool scatter(in Ray r_in, in Hit_record rec, inout vec3 attenuation, inout Ray scattered) {
@@ -256,7 +323,7 @@ const sphere = glsl`
 `;
 
 const sphereHit = glsl`
-   bool hit_sphere(const in Sphere sphere, 
+   bool hit_sphere(const in Sphere sphere,
                   const in Ray r,
                   const in float t_min,
                   const in float t_max,
@@ -284,20 +351,26 @@ const sphereHit = glsl`
       rec.p = at(r, rec.t);
       vec3 outward_normal = (rec.p - sphere.center) / sphere.radius;
       set_face_normal(rec, r, outward_normal);
-      rec.material = sphere.material; 
+      // rec.normal = (rec.p - sphere.center) / sphere.radius;
+      rec.material = sphere.material;
 
       return true;
    }
 `;
 
 const hit = glsl`
-   bool hit(Sphere spheres[NUMBER_OF_SPHERES], Ray r, float t_min, float t_max, out Hit_record rec) {
+   bool hit(const in Sphere spheres[NUMBER_OF_SPHERES], 
+            const in Ray r, 
+            const in float t_min, const in 
+            float t_max, 
+            out Hit_record rec
+   ) {
       Hit_record temp_rec;
       bool hit_anything = false;
       float closest_so_far = t_max;
 
       for(int i = 0; i < NUMBER_OF_SPHERES; i++) {
-         // TODO Rewrite hit_sphere to use Sphere instead of center and radius 
+         // TODO Rewrite hit_sphere to use Sphere instead of center and radius
          if(hit_sphere(spheres[i], r, t_min, closest_so_far, temp_rec)) {
             hit_anything = true;
             closest_so_far = temp_rec.t;
@@ -310,7 +383,7 @@ const hit = glsl`
 `;
 
 const rayColor = glsl`
-   vec3 ray_color(Ray r, Sphere spheres[NUMBER_OF_SPHERES]) {
+   vec3 ray_color(in Ray r, in Sphere spheres[NUMBER_OF_SPHERES]) {
       Hit_record rec;
       vec3 color = vec3(1.0);
 
@@ -327,12 +400,12 @@ const rayColor = glsl`
             }
          } else {
             vec3 unit_direction = normalize(r.direction);
-            float t = 0.5*(unit_direction.y + 1.0);
+            float t = 0.5*unit_direction.y + 0.5;
             color *= mix(vec3(1.0), vec3(0.5, 0.7, 1.0), t);
             return color;
          }
       }
-      return color;
+      return vec3(0.0);
    }
 `;
 
@@ -344,7 +417,7 @@ const fragmentShaderMain = glsl`
       // Materials
       Material material_ground = Material(0, vec3(0.8, 0.8, 0.0), 0.0, 0.0);
       Material material_center = Material(0, vec3(0.1, 0.2, 0.5), 0.0, 0.0);
-      Material material_left = Material(2, vec3(0.8, 0.8, 0.8), 0.3, 1.5);
+      Material material_left = Material(2, vec3(0.8, 0.8, 0.8), 0.0, 1.5);
       Material material_right = Material(1, vec3(0.8, 0.6, 0.2), 0.0, 0.0);
       // Material material_left = Material(0, vec3(0.0, 0.0, 1.0), 0.0, 0.0);
       // Material material_right = Material(0, vec3(1.0, 0.0, 0.0), 0.0, 0.0);
@@ -353,7 +426,7 @@ const fragmentShaderMain = glsl`
       Sphere spheres[NUMBER_OF_SPHERES];
       spheres[0] = Sphere(vec3(0.0, 0.0, -1.0), 0.5, material_center);
       spheres[1] = Sphere(vec3(0.0, -100.5, -1.0), 100.0, material_ground);
-      spheres[2] = Sphere(vec3(-1.0, 0.0, -1.0), -0.45, material_left);
+      spheres[2] = Sphere(vec3(-1.0, 0.0, -1.0), 0.5, material_left);
       spheres[3] = Sphere(vec3(1.0, 0.0, -1.0), 0.5, material_right);
       // float R = cos(pi/4.0);
       // spheres[0] = Sphere(vec3(-R, 0.0, -1.0), R, material_left);
@@ -366,13 +439,19 @@ const fragmentShaderMain = glsl`
       vec2 uv = (gl_FragCoord.xy + hash2(g_seed)) / resolution;
 
       // Setup the camera
-      // Camera c = Camera(origin, horizontal, vertical, lower_left_corner);
-      Camera c = init_camera(vec3(-2., 2., 1.), vec3(0., 0., -1.), vec3(0., 1., 0.), 20.0, aspect);
+      // Camera c = Camera(origin, horizontal, vertical, lower_left_corner, lens_radius, u, v, w);
+      vec3 lookfrom = vec3(3.0, 3.0, 2.0);
+      vec3 lookat = vec3(0.0, 0.0, -1.0);
+      vec3 vup = vec3(0.0, 1.0, 0.0);
+      float fov = 20.0;
+      float dist_to_focus = length(lookfrom - lookat);
+      float aperture = 2.0;
+      Camera c = init_camera(lookfrom, lookat, vup, fov, aspect, aperture, dist_to_focus);
 
       // Get the ray and the calculate the color for that "pixel"
       Ray r = get_ray(c, uv.x, uv.y);
       vec3 color = clamp(ray_color(r, spheres), 0.0, 0.999);
-      
+
       vec3 texture = texture(u_texture, gl_FragCoord.xy / resolution).rgb;
       // vec3 texture = vec3(0.0);
       frag_color = vec4(mix(sqrt(color), texture, textureWeight), 1.0);
@@ -449,6 +528,265 @@ var renderFragmentSource = glsl`#version 300 es
 
    void main() {
       fragColor = texture(u_texture, v_texcoord);
+   }
+`;
+
+var reinFragmentSource = glsl`#version 300 es
+   precision mediump float;
+   #define MAX_FLOAT 1e5
+   #define MAX_RECURSION 5
+   uniform float time;
+   uniform float textureWeight;
+   uniform sampler2D u_texture;
+   out vec4 frag_color;
+   // Image
+   const float aspect_ratio = 16.0 / 9.0;
+   const float image_width = 600.0;
+   const float image_height = image_width / aspect_ratio;
+   const float viewport_height = 2.0;
+   const float viewport_width = viewport_height * aspect_ratio;
+   const float focal_length = 1.0;
+   const int samples_per_pixel = 1;
+   const int max_depth = 50;
+   //
+   // Hash functions by Nimitz:
+   // https://www.shadertoy.com/view/Xt3cDn
+   //
+   #define LAMBERTIAN 0
+   #define METAL 1
+   #define DIELECTRIC 2
+
+   //
+   // Hash functions by Nimitz:
+   // https://www.shadertoy.com/view/Xt3cDn
+   //
+
+   uint base_hash(uvec2 p) {
+       p = 1103515245U*((p >> 1U)^(p.yx));
+       uint h32 = 1103515245U*((p.x)^(p.y>>3U));
+       return h32^(h32 >> 16);
+   }
+
+   float g_seed = 0.;
+
+   float hash1(inout float seed) {
+       uint n = base_hash(floatBitsToUint(vec2(seed+=.1,seed+=.1)));
+       return float(n)*(1.0/float(0xffffffffU));
+   }
+
+   vec2 hash2(inout float seed) {
+       uint n = base_hash(floatBitsToUint(vec2(seed+=.1,seed+=.1)));
+       uvec2 rz = uvec2(n, n*48271U);
+       return vec2(rz.xy & uvec2(0x7fffffffU))/float(0x7fffffff);
+   }
+
+   vec3 hash3(inout float seed) {
+       uint n = base_hash(floatBitsToUint(vec2(seed+=.1,seed+=.1)));
+       uvec3 rz = uvec3(n, n*16807U, n*48271U);
+       return vec3(rz & uvec3(0x7fffffffU))/float(0x7fffffff);
+   }
+
+   //
+   // Ray trace helper functions
+   //
+
+   float schlick(float cosine, float ior) {
+       float r0 = (1.-ior)/(1.+ior);
+       r0 = r0*r0;
+       return r0 + (1.-r0)*pow((1.-cosine),5.);
+   }
+
+   bool modified_refract(const in vec3 v, const in vec3 n, const in float ni_over_nt,
+                         out vec3 refracted) {
+       float dt = dot(v, n);
+       float discriminant = 1. - ni_over_nt*ni_over_nt*(1.-dt*dt);
+       if (discriminant > 0.) {
+           refracted = ni_over_nt*(v - n*dt) - n*sqrt(discriminant);
+           return true;
+       } else {
+           return false;
+       }
+   }
+
+   vec3 random_in_unit_sphere(inout float seed) {
+       vec3 h = hash3(seed) * vec3(2.,6.28318530718,1.)-vec3(1,0,0);
+       float phi = h.y;
+       float r = pow(h.z, 1./3.);
+      return r * vec3(sqrt(1.-h.x*h.x)*vec2(sin(phi),cos(phi)),h.x);
+   }
+
+   //
+   // Ray
+   //
+
+   struct ray {
+       vec3 origin, direction;
+   };
+
+   //
+   // Material
+   //
+
+   struct material {
+       int type;
+       vec3 albedo;
+       float v;
+   };
+
+   //
+   // Hit record
+   //
+
+   struct hit_record {
+       float t;
+       vec3 p, normal;
+       material mat;
+   };
+
+   bool material_scatter(const in ray r_in, const in hit_record rec, out vec3 attenuation,
+                         out ray scattered) {
+       if(rec.mat.type == LAMBERTIAN) {
+           vec3 rd = normalize(rec.normal + random_in_unit_sphere(g_seed));
+           scattered = ray(rec.p, rd);
+           attenuation = rec.mat.albedo;
+           return true;
+       } else if(rec.mat.type == METAL) {
+           vec3 rd = reflect(r_in.direction, rec.normal);
+           scattered = ray(rec.p, normalize(rd + rec.mat.v*random_in_unit_sphere(g_seed)));
+           attenuation = rec.mat.albedo;
+           return true;
+       } else if(rec.mat.type == DIELECTRIC) {
+           vec3 outward_normal, refracted,
+                reflected = reflect(r_in.direction, rec.normal);
+           float ni_over_nt, reflect_prob, cosine;
+
+           attenuation = vec3(1);
+           if (dot(r_in.direction, rec.normal) > 0.) {
+               outward_normal = -rec.normal;
+               ni_over_nt = rec.mat.v;
+               cosine = dot(r_in.direction, rec.normal);
+               cosine = sqrt(1. - rec.mat.v*rec.mat.v*(1.-cosine*cosine));
+           } else {
+               outward_normal = rec.normal;
+               ni_over_nt = 1. / rec.mat.v;
+               cosine = -dot(r_in.direction, rec.normal);
+           }
+
+           if (modified_refract(r_in.direction, outward_normal, ni_over_nt, refracted)) {
+              reflect_prob = schlick(cosine, rec.mat.v);
+           } else {
+               reflect_prob = 1.;
+           }
+
+           if (hash1(g_seed) < reflect_prob) {
+               scattered = ray(rec.p, reflected);
+           } else {
+               scattered = ray(rec.p, refracted);
+           }
+           return true;
+       }
+       return false;
+   }
+
+   //
+   // Hitable, for now this is always a sphere
+   //
+
+   struct hitable {
+       vec3 center;
+       float radius;
+   };
+
+   bool hitable_hit(const in hitable hb, const in ray r, const in float t_min,
+                    const in float t_max, inout hit_record rec) {
+       // always a sphere
+       vec3 oc = r.origin - hb.center;
+       float b = dot(oc, r.direction);
+       float c = dot(oc, oc) - hb.radius * hb.radius;
+       float discriminant = b * b - c;
+       if (discriminant < 0.0) return false;
+
+      float s = sqrt(discriminant);
+      float t1 = -b - s;
+      float t2 = -b + s;
+
+      float t = t1 < t_min ? t2 : t1;
+       if (t < t_max && t > t_min) {
+           rec.t = t;
+           rec.p = r.origin + t*r.direction;
+           rec.normal = (rec.p - hb.center) / hb.radius;
+          return true;
+       } else {
+           return false;
+       }
+   }
+
+   //
+   // Camera
+   //
+
+   struct camera {
+       vec3 origin, lower_left_corner, horizontal, vertical;
+   };
+
+   ray camera_get_ray(camera c, vec2 uv) {
+       return ray(c.origin,
+                  normalize(c.lower_left_corner + uv.x*c.horizontal + uv.y*c.vertical - c.origin));
+   }
+
+   //
+   // Color & Scene
+   //
+
+   bool world_hit(const in ray r, const in float t_min,
+                  const in float t_max, out hit_record rec) {
+       rec.t = t_max;
+       bool hit = false;
+
+      if (hitable_hit(hitable(vec3(0,0,-1),.5),r,t_min,rec.t,rec))        hit=true,rec.mat=material(LAMBERTIAN,vec3(.1,.2,.5),0.);
+      if (hitable_hit(hitable(vec3(0,-100.5,-1),100.),r,t_min,rec.t,rec)) hit=true,rec.mat=material(LAMBERTIAN,vec3(.8,.8,0),0.);
+      if (hitable_hit(hitable(vec3(1,0,-1),.5),r,t_min,rec.t,rec))        hit=true,rec.mat=material(METAL     ,vec3(.8,.6,.2),.2);
+      if (hitable_hit(hitable(vec3(-1,0,-1),.5),r,t_min,rec.t,rec))       hit=true,rec.mat=material(DIELECTRIC,vec3(0),1.5);
+      if (hitable_hit(hitable(vec3(-1,0,-1),-.45),r,t_min,rec.t,rec))     hit=true,rec.mat=material(DIELECTRIC,vec3(0),1.5);
+
+       return hit;
+   }
+
+   vec3 color(in ray r) {
+       vec3 col = vec3(1);
+      hit_record rec;
+
+       for (int i=0; i<MAX_RECURSION; i++) {
+          if (world_hit(r, 0.001, MAX_FLOAT, rec)) {
+               ray scattered;
+               vec3 attenuation;
+               if (material_scatter(r, rec, attenuation, scattered)) {
+                   col *= attenuation;
+                   r = scattered;
+               } else {
+                   return vec3(0);
+               }
+          } else {
+               float t = .5*r.direction.y + .5;
+               col *= mix(vec3(1),vec3(.5,.7,1), t);
+               return col;
+          }
+       }
+       return vec3(0);
+   }
+   //
+   // Main
+   //
+   void main() {
+      vec2 resolution = vec2(600, 338);
+
+      g_seed = float(base_hash(floatBitsToUint(gl_FragCoord.xy)))/float(0xffffffffU)+time;
+      vec2 uv = (gl_FragCoord.xy + hash2(g_seed))/resolution.xy;
+      float aspect = resolution.x/resolution.y;
+      ray r = camera_get_ray(camera(vec3(0), vec3(-2,-1,-1), vec3(4,0,0), vec3(0,4./aspect,0)), uv);
+      vec3 col = color(r);
+      vec3 texture = texture(u_texture, gl_FragCoord.xy / resolution).rgb;
+      frag_color = vec4(mix(sqrt(col), texture, textureWeight), 1.0);
    }
 `;
 
