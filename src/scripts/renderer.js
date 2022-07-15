@@ -368,33 +368,8 @@ const fragmentShaderMain = (world) => {
          vec2 resolution = vec2(600, 338);
          float aspect = resolution.x / resolution.y;
 
-         // Materials
-         // Material material_ground = Material(0, vec3(0.8, 0.8, 0.0), 0.0, 0.0);
-         // Material material_center = Material(0, vec3(0.1, 0.2, 0.5), 0.0, 0.0);
-         // Material material_left = Material(2, vec3(0.8, 0.8, 0.8), 0.0, 1.5);
-         // Material material_right = Material(1, vec3(0.8, 0.6, 0.2), 0.0, 0.0);
-         // Material material_left = Material(0, vec3(0.0, 0.0, 1.0), 0.0, 0.0);
-         // Material material_right = Material(0, vec3(1.0, 0.0, 0.0), 0.0, 0.0);
-
-         Material material_ground = Material(0, vec3(0.5), 0.0, 0.0);
-         Material material1 = Material(DIELECTRIC, vec3(0.0), 0.0, 1.5);
-         Material material2 = Material(LAMBERTIAN, vec3(0.4, 0.2, 0.1), 0.0, 0.0);
-         Material material3 = Material(METAL, vec3(0.7, 0.6, 0.5), 0.0, 0.0);
-
-         // // World
+         // World
          Sphere spheres[NUMBER_OF_SPHERES];
-         // spheres[0] = Sphere(vec3(0.0, 0.0, -1.0), 0.5, material_center);
-         // spheres[1] = Sphere(vec3(0.0, -100.5, -1.0), 100.0, material_ground);
-         // spheres[2] = Sphere(vec3(-1.0, 0.0, -1.0), -0.45, material_left);
-         // spheres[3] = Sphere(vec3(1.0, 0.0, -1.0), 0.5, material_right);
-         // float R = cos(pi/4.0);
-         // spheres[0] = Sphere(vec3(-R, 0.0, -1.0), R, material_left);
-         // spheres[1] = Sphere(vec3(R, 0.0, -1.0), R, material_right);
-
-         // spheres[0] = Sphere(vec3(0.0, -1000.0, 0.0), 1000.0, material_ground);
-         // spheres[1] = Sphere(vec3(0.0, 1.0, 0.0), 1.0, material1);
-         // spheres[2] = Sphere(vec3(-4.0, 1.0, 0.0), 1.0, material2);
-         // spheres[3] = Sphere(vec3(4.0, 1.0, 0.0), 1.0, material3);
 
          ${world}
 
@@ -568,12 +543,8 @@ function createProgramFromSource(gl, vertexSource, fragmentSource) {
    var textureProgram = gl.createProgram();
    gl.attachShader(textureProgram, vertexShader);
    gl.attachShader(textureProgram, fragmentShader);
-   console.time("Link program");
    gl.linkProgram(textureProgram);
-   console.timeEnd("Link program");
-   console.time("Get program parameters");
    var success = gl.getProgramParameter(textureProgram, gl.LINK_STATUS);
-   console.timeEnd("Get program parameters");
    if (success) {
       return textureProgram;
    }
@@ -638,7 +609,7 @@ function tick(gl, timeSinceStart) {
 
    let test = "";
 
-   let side = 5;
+   let side = 3;
    number_of_spheres = 4 * side * side + 4;
 
    var i = 4;
@@ -693,18 +664,13 @@ function tick(gl, timeSinceStart) {
       }
    }
 
-   console.time("setup_shader");
-
    // console.log(world);
 
    var textureProgram = createProgramFromSource(
       gl,
       vertexShaderSource,
-      // reinFragmentSource
       createFragmentShaderSource(number_of_spheres, world)
    );
-
-   console.timeEnd("setup_shader");
 
    // Setup texture
    var textureVertexAttribute = gl.getAttribLocation(textureProgram, "vertex");
