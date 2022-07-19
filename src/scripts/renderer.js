@@ -580,218 +580,306 @@ function resizeCanvasToDisplaySize(canvas, multiplier) {
    return false;
 }
 
-//-------------------------------------------------------------------
+class Renderer {
+   gl;
+   number_of_spheres;
+   world_string;
+   sampleCount;
+   timeSinceStart;
 
-function tick(gl, timeSinceStart) {
-   let number_of_spheres = 8;
+   vertices;
 
-   let material_ground = new Material(
-      0,
-      glMatrix.vec3.clone([0.5, 0.5, 0.5]),
-      0,
-      0
-   );
-   let material1 = new Material(2, glMatrix.vec3.clone([0, 0, 0]), 0, 1.5);
-   let material2 = new Material(0, glMatrix.vec3.clone([0.4, 0.2, 0.1]), 0, 0);
-   let material3 = new Material(1, glMatrix.vec3.clone([0.7, 0.6, 0.5]), 0, 0);
+   textureProgram;
+   textureVertexAttribute;
+   timeLocation;
+   textureWeightLocation;
+   textureVertexBuffer;
+   textureVao;
+   textures;
+   framebuffer;
 
-   let sphere1 = new Sphere(
-      glMatrix.vec3.clone([0, -1000, 0]),
-      1000,
-      material_ground
-   );
-   let sphere2 = new Sphere(glMatrix.vec3.clone([0, 1, 0]), 1, material1);
-   let sphere3 = new Sphere(glMatrix.vec3.clone([-4, 1, 0]), 1, material2);
-   let sphere4 = new Sphere(glMatrix.vec3.clone([4, 1, 0]), 1, material3);
+   renderProgram;
+   renderVertexAttribute;
+   renderVertexBuffer;
+   renderVao;
 
-   let world = `
+   constructor(gl, timeSinceStart) {
+      this.gl = gl;
+      this.vertices = new Float32Array([-1, -1, -1, 1, 1, -1, 1, 1]);
+      this.sampleCount = 0;
+      this.timeSinceStart = timeSinceStart;
+      [this.number_of_spheres, this.world_string] = this.#setupWorld();
+
+      this.textureProgram = createProgramFromSource(
+         this.gl,
+         vertexShaderSource,
+         createFragmentShaderSource(this.number_of_spheres, this.world_string)
+      );
+
+      // Setup texture
+      this.textureVertexAttribute = this.gl.getAttribLocation(
+         this.textureProgram,
+         "vertex"
+      );
+
+      this.timeLocation = this.gl.getUniformLocation(
+         this.textureProgram,
+         "time"
+      );
+      this.textureWeightLocation = this.gl.getUniformLocation(
+         this.textureProgram,
+         "textureWeight"
+      );
+
+      // Create a buffer for vertices
+      this.textureVertexBuffer = this.gl.createBuffer();
+
+      this.textureVao = this.gl.createVertexArray();
+      this.gl.bindVertexArray(this.textureVao);
+      this.gl.enableVertexAttribArray(this.textureVertexAttribute);
+
+      // Bind it to ARRAY_BUFFER
+      this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.textureVertexBuffer);
+
+      // Set geometry (i.e. two triangles forming a rectangle)
+      this.gl.bufferData(
+         this.gl.ARRAY_BUFFER,
+         this.vertices,
+         this.gl.STATIC_DRAW
+      );
+      this.gl.vertexAttribPointer(
+         this.textureVertexAttribute,
+         2,
+         this.gl.FLOAT,
+         false,
+         0,
+         0
+      );
+
+      // Create textures to render to
+      this.textures = [];
+      this.gl.activeTexture(this.gl.TEXTURE0 + 0);
+      for (var i = 0; i < 2; i++) {
+         this.textures.push(this.gl.createTexture());
+         this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures[i]);
+         this.gl.texImage2D(
+            this.gl.TEXTURE_2D,
+            0,
+            this.gl.RGBA,
+            this.gl.canvas.width,
+            this.gl.canvas.height,
+            0,
+            this.gl.RGBA,
+            this.gl.UNSIGNED_BYTE,
+            null
+         );
+         // Skip mipmap
+         this.gl.texParameteri(
+            this.gl.TEXTURE_2D,
+            this.gl.TEXTURE_MIN_FILTER,
+            this.gl.NEAREST
+         );
+         this.gl.texParameteri(
+            this.gl.TEXTURE_2D,
+            this.gl.TEXTURE_MAG_FILTER,
+            this.gl.NEAREST
+         );
+         this.gl.texParameteri(
+            this.gl.TEXTURE_2D,
+            this.gl.TEXTURE_WRAP_S,
+            this.gl.CLAMP_TO_EDGE
+         );
+         this.gl.texParameteri(
+            this.gl.TEXTURE_2D,
+            this.gl.TEXTURE_WRAP_T,
+            this.gl.CLAMP_TO_EDGE
+         );
+      }
+      this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+
+      // Create and bind the framebuffer
+      this.framebuffer = this.gl.createFramebuffer();
+      this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer);
+
+      // Setup program for rendering to canvas
+      this.renderProgram = createProgramFromSource(
+         this.gl,
+         renderVertexSource,
+         renderFragmentSource
+      );
+
+      this.renderVertexAttribute = this.gl.getAttribLocation(
+         this.renderProgram,
+         "vertex"
+      );
+
+      // Create a buffer for vertices
+      this.renderVertexBuffer = this.gl.createBuffer();
+
+      this.renderVao = this.gl.createVertexArray();
+      this.gl.bindVertexArray(this.renderVao);
+      this.gl.enableVertexAttribArray(this.renderVertexAttribute);
+
+      // Bind it to ARRAY_BUFFER
+      this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.renderVertexBuffer);
+
+      // Set geometry (i.e. two triangles forming a rectangle)
+      this.gl.bufferData(
+         this.gl.ARRAY_BUFFER,
+         this.vertices,
+         this.gl.STATIC_DRAW
+      );
+      this.gl.vertexAttribPointer(
+         this.renderVertexAttribute,
+         2,
+         this.gl.FLOAT,
+         false,
+         0,
+         0
+      );
+   }
+
+   #setupWorld() {
+      let number_of_spheres = 8;
+
+      let material_ground = new Material(
+         0,
+         glMatrix.vec3.clone([0.5, 0.5, 0.5]),
+         0,
+         0
+      );
+      let material1 = new Material(2, glMatrix.vec3.clone([0, 0, 0]), 0, 1.5);
+      let material2 = new Material(
+         0,
+         glMatrix.vec3.clone([0.4, 0.2, 0.1]),
+         0,
+         0
+      );
+      let material3 = new Material(
+         1,
+         glMatrix.vec3.clone([0.7, 0.6, 0.5]),
+         0,
+         0
+      );
+
+      let sphere1 = new Sphere(
+         glMatrix.vec3.clone([0, -1000, 0]),
+         1000,
+         material_ground
+      );
+      let sphere2 = new Sphere(glMatrix.vec3.clone([0, 1, 0]), 1, material1);
+      let sphere3 = new Sphere(glMatrix.vec3.clone([-4, 1, 0]), 1, material2);
+      let sphere4 = new Sphere(glMatrix.vec3.clone([4, 1, 0]), 1, material3);
+
+      let world = `
       spheres[0] = ${sphere1.toString()};
       spheres[1] = ${sphere2.toString()};
       spheres[2] = ${sphere3.toString()};
       spheres[3] = ${sphere4.toString()};
    `;
 
-   let test = "";
+      let side = 3;
+      number_of_spheres = 4 * side * side + 4;
 
-   let side = 3;
-   number_of_spheres = 4 * side * side + 4;
+      var i = 4;
+      for (let a = -side; a < side; a++) {
+         for (let b = -side; b < side; b++) {
+            let sphere_string = "";
+            let sphere;
+            let mat;
+            let choose_mat = Math.random();
+            let center = glMatrix.vec3.clone([
+               a + 0.9 * Math.random(),
+               0.2,
+               b + 0.9 * Math.random(),
+            ]);
 
-   var i = 4;
-   for (let a = -side; a < side; a++) {
-      for (let b = -side; b < side; b++) {
-         let sphere_string = "";
-         let sphere;
-         let mat;
-         let choose_mat = Math.random();
-         let center = glMatrix.vec3.clone([
-            a + 0.9 * Math.random(),
-            0.2,
-            b + 0.9 * Math.random(),
-         ]);
+            let scene_center = glMatrix.vec3.clone([4, 0.2, 0]);
+            let distance = glMatrix.vec3.create();
+            glMatrix.vec3.subtract(distance, center, scene_center);
+            if (glMatrix.vec3.length(distance) > 0.9) {
+               if (choose_mat < 0.8) {
+                  // diffuse
+                  let color = [
+                     Math.random() * Math.random(),
+                     Math.random() * Math.random(),
+                     Math.random() * Math.random(),
+                  ];
+                  let albedo = glMatrix.vec3.clone(color);
+                  mat = new Material(0, albedo, 0, 0);
+               } else if (choose_mat < 0.95) {
+                  // metal
+                  let color = [
+                     Math.random() * 0.5,
+                     Math.random() * 0.5,
+                     Math.random() * 0.5,
+                  ];
+                  let albedo = glMatrix.vec3.clone(color);
+                  let fuzz = Math.random() * 0.5;
+                  mat = new Material(1, albedo, fuzz, 0);
+               } else {
+                  // glass
+                  mat = new Material(2, glMatrix.vec3.create(), 0, 1.5);
+               }
 
-         let scene_center = glMatrix.vec3.clone([4, 0.2, 0]);
-         let distance = glMatrix.vec3.create();
-         glMatrix.vec3.subtract(distance, center, scene_center);
-         if (glMatrix.vec3.length(distance) > 0.9) {
-            if (choose_mat < 0.8) {
-               // diffuse
-               let color = [
-                  Math.random() * Math.random(),
-                  Math.random() * Math.random(),
-                  Math.random() * Math.random(),
-               ];
-               let albedo = glMatrix.vec3.clone(color);
-               mat = new Material(0, albedo, 0, 0);
-            } else if (choose_mat < 0.95) {
-               // metal
-               let color = [
-                  Math.random() * 0.5,
-                  Math.random() * 0.5,
-                  Math.random() * 0.5,
-               ];
-               let albedo = glMatrix.vec3.clone(color);
-               let fuzz = Math.random() * 0.5;
-               mat = new Material(1, albedo, fuzz, 0);
-            } else {
-               // glass
-               mat = new Material(2, glMatrix.vec3.create(), 0, 1.5);
-            }
-
-            sphere = new Sphere(center, 0.2, mat);
-            sphere_string = `spheres[${i}] = ${sphere.toString()};
+               sphere = new Sphere(center, 0.2, mat);
+               sphere_string = `spheres[${i}] = ${sphere.toString()};
             `;
 
-            world += sphere_string;
+               world += sphere_string;
 
-            i++;
+               i++;
+            }
          }
       }
+      return [number_of_spheres, world];
    }
-
-   // console.log(world);
-
-   var textureProgram = createProgramFromSource(
-      gl,
-      vertexShaderSource,
-      createFragmentShaderSource(number_of_spheres, world)
-   );
-
-   // Setup texture
-   var textureVertexAttribute = gl.getAttribLocation(textureProgram, "vertex");
-
-   var timeLocation = gl.getUniformLocation(textureProgram, "time");
-   var textureWeightLocation = gl.getUniformLocation(
-      textureProgram,
-      "textureWeight"
-   );
-
-   // Create a buffer for vertices
-   var positionBuffer = gl.createBuffer();
-
-   var textureVao = gl.createVertexArray();
-   gl.bindVertexArray(textureVao);
-   gl.enableVertexAttribArray(textureVertexAttribute);
-
-   // Bind it to ARRAY_BUFFER
-   gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-
-   // Set geometry (i.e. two triangles forming a rectangle)
-   var positions = new Float32Array([-1, -1, -1, 1, 1, -1, 1, 1]);
-   gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
-   gl.vertexAttribPointer(textureVertexAttribute, 2, gl.FLOAT, false, 0, 0);
-
-   // Create texture to render to
-   var textures = [];
-   gl.activeTexture(gl.TEXTURE0 + 0);
-   for (var i = 0; i < 2; i++) {
-      textures.push(gl.createTexture());
-      gl.bindTexture(gl.TEXTURE_2D, textures[i]);
-      gl.texImage2D(
-         gl.TEXTURE_2D,
-         0,
-         gl.RGBA,
-         gl.canvas.width,
-         gl.canvas.height,
-         0,
-         gl.RGBA,
-         gl.UNSIGNED_BYTE,
-         null
-      );
-      // Skip mipmap
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-   }
-   gl.bindTexture(gl.TEXTURE_2D, null);
-
-   // Create and bind the framebuffer
-   const framebuffer = gl.createFramebuffer();
-   gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
-
-   // Render to canvas
-   var renderProgram = createProgramFromSource(
-      gl,
-      renderVertexSource,
-      renderFragmentSource
-   );
-
-   var renderVertexAttribute = gl.getAttribLocation(renderProgram, "vertex");
-
-   // Create a buffer for vertices
-   var vertexBuffer = gl.createBuffer();
-
-   var vao = gl.createVertexArray();
-   gl.bindVertexArray(vao);
-   gl.enableVertexAttribArray(renderVertexAttribute);
-
-   // Bind it to ARRAY_BUFFER
-   gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
-
-   // Set geometry (i.e. two triangles forming a rectangle)
-   var vertices = new Float32Array([-1, -1, -1, 1, 1, -1, 1, -1, -1, 1, 1, 1]);
-   gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
-   gl.vertexAttribPointer(renderVertexAttribute, 2, gl.FLOAT, false, 0, 0);
-
-   console.time("render");
-   var sampleCount = 0;
-   for (var i = 0; i < 100; i++) {
-      // Render to the texture
-      gl.bindTexture(gl.TEXTURE_2D, textures[0]);
-      gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+   drawToTexture() {
+      this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures[0]);
+      this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer);
       // Attach the texture as the first color attachment
-      gl.framebufferTexture2D(
-         gl.FRAMEBUFFER,
-         gl.COLOR_ATTACHMENT0,
-         gl.TEXTURE_2D,
-         textures[1],
+      this.gl.framebufferTexture2D(
+         this.gl.FRAMEBUFFER,
+         this.gl.COLOR_ATTACHMENT0,
+         this.gl.TEXTURE_2D,
+         this.textures[1],
          0
       );
 
       // Use textureProgram
-      gl.useProgram(textureProgram);
-      gl.bindVertexArray(textureVao);
+      this.gl.useProgram(this.textureProgram);
+      this.gl.bindVertexArray(this.textureVao);
 
       // set uniforms
-      gl.uniform1f(timeLocation, timeSinceStart + i);
-      gl.uniform1f(textureWeightLocation, sampleCount / (sampleCount + 1));
+      this.gl.uniform1f(this.timeLocation, this.timeSinceStart);
+      this.gl.uniform1f(
+         this.textureWeightLocation,
+         this.sampleCount / (this.sampleCount + 1)
+      );
       // Draw texture and unbind framebuffer
-      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      // Ping pong textures
-      textures.reverse();
+      this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+      this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+      // "Ping pong" textures
+      this.textures.reverse();
 
-      // Render to the canvas
-      gl.useProgram(renderProgram);
-      gl.bindVertexArray(vao);
-      gl.bindTexture(gl.TEXTURE_2D, textures[0]);
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
-
-      sampleCount += 1;
+      this.sampleCount += 1;
    }
-   console.timeEnd("render");
 
-   // requestAnimationFrame(tick(gl, timeSinceStart*0.001))
+   render() {
+      // Render to the canvas
+      this.gl.useProgram(this.renderProgram);
+      this.gl.bindVertexArray(this.renderVao);
+      this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures[0]);
+      this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+   }
+
+   tick() {
+      this.drawToTexture();
+      this.render();
+
+      this.timeSinceStart += 0.0001;
+      requestAnimationFrame(() => this.tick());
+   }
 }
 
 //-------------------------------------------------------------------
@@ -818,9 +906,11 @@ function main() {
    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
 
    var timeSinceStart = new Date() - start;
-   // requestAnimationFrame(tick(gl, timeSinceStart));
-   // setInterval(() => tick(gl, timeSinceStart), 1000 / 60);
-   tick(gl, timeSinceStart);
+   var renderer = new Renderer(gl, timeSinceStart * 0.001);
+   // for (let i = 0; i < 100; i++) {
+   //    requestAnimationFrame(() => renderer.tick());
+   // }
+   requestAnimationFrame(() => renderer.tick());
 }
 
 window.onload = main;
