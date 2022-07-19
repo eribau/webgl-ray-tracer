@@ -525,10 +525,12 @@ class Sphere {
 
 //-------------------------------------------------------------------
 function createShader(gl, type, source) {
+   console.time("Create shader");
    var shader = gl.createShader(type);
    gl.shaderSource(shader, source);
    gl.compileShader(shader);
    var success = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
+   console.timeEnd("Create shader");
    if (success) {
       return shader;
    }
@@ -543,7 +545,9 @@ function createProgramFromSource(gl, vertexSource, fragmentSource) {
    var textureProgram = gl.createProgram();
    gl.attachShader(textureProgram, vertexShader);
    gl.attachShader(textureProgram, fragmentShader);
+   console.time("Create program");
    gl.linkProgram(textureProgram);
+   console.timeEnd("Create program");
    var success = gl.getProgramParameter(textureProgram, gl.LINK_STATUS);
    if (success) {
       return textureProgram;
