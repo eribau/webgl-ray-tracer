@@ -34,6 +34,7 @@ const fragmentShaderHeader = (number_of_spheres) => {
       const int max_depth = 50;
 
       // Camera
+      uniform vec3 eye;
       const vec3 origin = vec3(0.0, 0.0, 0.0);
       const vec3 horizontal = vec3(viewport_width, 0.0, 0.0);
       const vec3 vertical = vec3(0.0, viewport_height, 0.0);
@@ -48,7 +49,7 @@ const fragmentShaderHeader = (number_of_spheres) => {
 };
 
 // Utilities
-const degreesToRadians = glsl`
+const utilities = glsl`
    float degrees_to_radians(float degrees) {
       return degrees * pi / 180.0;
    }
@@ -381,12 +382,12 @@ const fragmentShaderMain = (world) => {
 
          // Setup the camera
          // Camera c = Camera(origin, horizontal, vertical, lower_left_corner, lens_radius, u, v, w);
-         vec3 lookfrom = vec3(12.0, 2.0, 3.0);
+         vec3 lookfrom = eye;
          vec3 lookat = vec3(0.0, 0.0, 0.0);
          vec3 vup = vec3(0.0, 1.0, 0.0);
          float fov = 20.0;
-         // float dist_to_focus = length(lookfrom - lookat);
-         float dist_to_focus = 10.0;
+         float dist_to_focus = length(lookfrom - lookat);
+         // float dist_to_focus = 10.0;
          float aperture = 0.1;
          Camera c = init_camera(lookfrom, lookat, vup, fov, aspect, aperture, dist_to_focus);
 
@@ -404,7 +405,7 @@ const fragmentShaderMain = (world) => {
 function createFragmentShaderSource(number_of_spheres, world) {
    return (
       fragmentShaderHeader(number_of_spheres) +
-      degreesToRadians +
+      utilities +
       random +
       ray +
       rayAt +
@@ -580,12 +581,18 @@ function resizeCanvasToDisplaySize(canvas, multiplier) {
    return false;
 }
 
+function degreesToRadians(degrees) {
+   return (degrees * Math.PI) / 180.0;
+}
+
 class Renderer {
    gl;
    number_of_spheres;
    world_string;
    sampleCount;
    timeSinceStart;
+   cameraPos;
+   lookat;
 
    vertices;
 
@@ -593,6 +600,7 @@ class Renderer {
    textureVertexAttribute;
    timeLocation;
    textureWeightLocation;
+   eyeLocation;
    textureVertexBuffer;
    textureVao;
    textures;
@@ -609,6 +617,8 @@ class Renderer {
       this.sampleCount = 0;
       this.timeSinceStart = timeSinceStart;
       [this.number_of_spheres, this.world_string] = this.#setupWorld();
+      this.cameraPos = glMatrix.vec3.clone([13, 2, 3]);
+      this.lookat = glMatrix.vec3.clone([0, 0, 0]);
 
       this.textureProgram = createProgramFromSource(
          this.gl,
@@ -630,6 +640,8 @@ class Renderer {
          this.textureProgram,
          "textureWeight"
       );
+
+      this.eyeLocation = this.gl.getUniformLocation(this.textureProgram, "eye");
 
       // Create a buffer for vertices
       this.textureVertexBuffer = this.gl.createBuffer();
@@ -834,6 +846,7 @@ class Renderer {
       }
       return [number_of_spheres, world];
    }
+
    drawToTexture() {
       this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures[0]);
       this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer);
@@ -856,6 +869,7 @@ class Renderer {
          this.textureWeightLocation,
          this.sampleCount / (this.sampleCount + 1)
       );
+      this.gl.uniform3fv(this.eyeLocation, this.cameraPos);
       // Draw texture and unbind framebuffer
       this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
       this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
@@ -880,20 +894,65 @@ class Renderer {
       this.timeSinceStart += 0.0001;
       requestAnimationFrame(() => this.tick());
    }
+
+   rotateCamera(angleX, angleY) {
+      glMatrix.vec3.rotateY(
+         this.cameraPos,
+         this.cameraPos,
+         this.lookat,
+         degreesToRadians(angleY)
+      );
+      glMatrix.vec3.rotateX(
+         this.cameraPos,
+         this.cameraPos,
+         this.lookat,
+         degreesToRadians(angleX)
+      );
+      this.sampleCount = 0;
+   }
+
+   zoomCamera(amount) {
+      glMatrix.vec3.scale(this.cameraPos, this.cameraPos, amount);
+      this.sampleCount = 0;
+   }
 }
 
 //-------------------------------------------------------------------
+function onpointerdown(e) {
+   console.log("Pressed pointer down");
+   drag = true;
+}
+
+function onpointermove(e, renderer) {
+   if (drag) {
+      console.log("x: " + e.movementX + " y: " + e.movementY);
+      renderer.rotateCamera(-e.movementY, -e.movementX);
+   }
+}
+
+function onpointerup(e) {
+   console.log("Released pointer");
+   drag = false;
+}
+
+function onwheel(e, renderer) {
+   var offset = 0.2;
+   renderer.zoomCamera(e.wheelDelta < 0 ? 1 - offset : 1 + offset);
+}
+//-------------------------------------------------------------------
+
+var drag = false;
 
 function main() {
    var canvas = document.querySelector("#canvas");
-   var gl = WebGLDebugUtils.makeDebugContext(
-      canvas.getContext("webgl2"),
-      undefined,
-      logGLCall
-   );
-   // var gl = canvas.getContext("webgl2");
+   // var gl = WebGLDebugUtils.makeDebugContext(
+   //    canvas.getContext("webgl2"),
+   //    undefined,
+   //    logGLCall
+   // );
+   var gl = canvas.getContext("webgl2");
    if (!gl) {
-      console.log("No webGl!");
+      console.log("Your browser does not seem to support webGL");
       return;
    }
 
@@ -907,9 +966,16 @@ function main() {
 
    var timeSinceStart = new Date() - start;
    var renderer = new Renderer(gl, timeSinceStart * 0.001);
-   // for (let i = 0; i < 100; i++) {
-   //    requestAnimationFrame(() => renderer.tick());
-   // }
+
+   canvas.addEventListener("pointerdown", onpointerdown, false);
+   canvas.addEventListener(
+      "pointermove",
+      (e) => onpointermove(e, renderer),
+      false
+   );
+   canvas.addEventListener("pointerup", onpointerup, false);
+   canvas.addEventListener("wheel", (e) => onwheel(e, renderer), false);
+
    requestAnimationFrame(() => renderer.tick());
 }
 
