@@ -21,24 +21,14 @@ const fragmentShaderHeader = (number_of_spheres) => {
       uniform float time;
       uniform float textureWeight;
       uniform sampler2D u_texture;
+      uniform vec2 res;
       out vec4 frag_color;
 
       // Image
-      const float aspect_ratio = 16.0 / 9.0;
-      const float image_width = 600.0;
-      const float image_height = image_width / aspect_ratio;
-      const float viewport_height = 2.0;
-      const float viewport_width = viewport_height * aspect_ratio;
-      const float focal_length = 1.0;
-      const int samples_per_pixel = 1;
       const int max_depth = 50;
 
       // Camera
       uniform vec3 eye;
-      const vec3 origin = vec3(0.0, 0.0, 0.0);
-      const vec3 horizontal = vec3(viewport_width, 0.0, 0.0);
-      const vec3 vertical = vec3(0.0, viewport_height, 0.0);
-      const vec3 lower_left_corner = origin - horizontal/2.0 - vertical/2.0 - vec3(0.0, 0.0, focal_length);
 
       // Constants
       float infinity = 100000.0;
@@ -366,8 +356,7 @@ const rayColor = glsl`
 const fragmentShaderMain = (world) => {
    return `
       void main() {
-         vec2 resolution = vec2(600, 338);
-         float aspect = resolution.x / resolution.y;
+         float aspect = res.x / res.y;
 
          // World
          Sphere spheres[NUMBER_OF_SPHERES];
@@ -378,7 +367,7 @@ const fragmentShaderMain = (world) => {
          g_seed = float(base_hash(floatBitsToUint(gl_FragCoord.xy)))/float(0xffffffffU)+time;
 
          // Get the coordinates to send the ray through
-         vec2 uv = (gl_FragCoord.xy + hash2(g_seed)) / resolution;
+         vec2 uv = (gl_FragCoord.xy + hash2(g_seed)) / res;
 
          // Setup the camera
          // Camera c = Camera(origin, horizontal, vertical, lower_left_corner, lens_radius, u, v, w);
@@ -395,7 +384,7 @@ const fragmentShaderMain = (world) => {
          Ray r = get_ray(c, uv.x, uv.y);
          vec3 color = clamp(ray_color(r, spheres), 0.0, 0.999);
 
-         vec3 texture = texture(u_texture, gl_FragCoord.xy / resolution).rgb;
+         vec3 texture = texture(u_texture, gl_FragCoord.xy / res).rgb;
          // vec3 texture = vec3(0.0);
          frag_color = vec4(mix(sqrt(color), texture, textureWeight), 1.0);
       }
@@ -593,6 +582,7 @@ class Renderer {
    timeSinceStart;
    cameraPos;
    lookat;
+   resolution;
 
    vertices;
 
@@ -601,6 +591,7 @@ class Renderer {
    timeLocation;
    textureWeightLocation;
    eyeLocation;
+   resolutionLocation;
    textureVertexBuffer;
    textureVao;
    textures;
@@ -611,7 +602,7 @@ class Renderer {
    renderVertexBuffer;
    renderVao;
 
-   constructor(gl, timeSinceStart) {
+   constructor(gl, timeSinceStart, width, height) {
       this.gl = gl;
       this.vertices = new Float32Array([-1, -1, -1, 1, 1, -1, 1, 1]);
       this.sampleCount = 0;
@@ -619,6 +610,7 @@ class Renderer {
       [this.number_of_spheres, this.world_string] = this.#setupWorld();
       this.cameraPos = glMatrix.vec3.clone([13, 2, 3]);
       this.lookat = glMatrix.vec3.clone([0, 0, 0]);
+      this.resolution = glMatrix.vec2.clone([width, height]);
 
       this.textureProgram = createProgramFromSource(
          this.gl,
@@ -639,6 +631,10 @@ class Renderer {
       this.textureWeightLocation = this.gl.getUniformLocation(
          this.textureProgram,
          "textureWeight"
+      );
+      this.resolutionLocation = this.gl.getUniformLocation(
+         this.textureProgram,
+         "res"
       );
 
       this.eyeLocation = this.gl.getUniformLocation(this.textureProgram, "eye");
@@ -752,7 +748,7 @@ class Renderer {
    }
 
    #setupWorld() {
-      let number_of_spheres = 8;
+      let number_of_spheres = 4;
 
       let material_ground = new Material(
          0,
@@ -809,6 +805,7 @@ class Renderer {
             let scene_center = glMatrix.vec3.clone([4, 0.2, 0]);
             let distance = glMatrix.vec3.create();
             glMatrix.vec3.subtract(distance, center, scene_center);
+            // Randomly place spheres of various materials around the scene
             if (glMatrix.vec3.length(distance) > 0.9) {
                if (choose_mat < 0.8) {
                   // diffuse
@@ -870,6 +867,8 @@ class Renderer {
          this.sampleCount / (this.sampleCount + 1)
       );
       this.gl.uniform3fv(this.eyeLocation, this.cameraPos);
+      this.gl.uniform2fv(this.resolutionLocation, this.resolution);
+
       // Draw texture and unbind framebuffer
       this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
       this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
@@ -896,6 +895,7 @@ class Renderer {
    }
 
    rotateCamera(angleX, angleY) {
+      // Rotate camera around x and y axes
       glMatrix.vec3.rotateY(
          this.cameraPos,
          this.cameraPos,
@@ -908,10 +908,13 @@ class Renderer {
          this.lookat,
          degreesToRadians(angleX)
       );
+      // Reset samplecount to re-render the texture
       this.sampleCount = 0;
    }
 
    zoomCamera(amount) {
+      // Scale camera position along the vector going from the camera position to the point
+      // that is being looked at
       glMatrix.vec3.scale(this.cameraPos, this.cameraPos, amount);
       this.sampleCount = 0;
    }
@@ -919,25 +922,26 @@ class Renderer {
 
 //-------------------------------------------------------------------
 function onpointerdown(e) {
-   console.log("Pressed pointer down");
    drag = true;
 }
 
 function onpointermove(e, renderer) {
    if (drag) {
-      console.log("x: " + e.movementX + " y: " + e.movementY);
       renderer.rotateCamera(-e.movementY, -e.movementX);
    }
 }
 
 function onpointerup(e) {
-   console.log("Released pointer");
    drag = false;
 }
 
 function onwheel(e, renderer) {
-   var offset = 0.2;
-   renderer.zoomCamera(e.wheelDelta < 0 ? 1 - offset : 1 + offset);
+   e.preventDefault();
+
+   var scalingFactor = 0.2;
+   renderer.zoomCamera(
+      e.wheelDelta < 0 ? 1 - scalingFactor : 1 + scalingFactor
+   );
 }
 //-------------------------------------------------------------------
 
@@ -965,7 +969,12 @@ function main() {
    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
 
    var timeSinceStart = new Date() - start;
-   var renderer = new Renderer(gl, timeSinceStart * 0.001);
+   var renderer = new Renderer(
+      gl,
+      timeSinceStart * 0.001,
+      gl.canvas.width,
+      gl.canvas.height
+   );
 
    canvas.addEventListener("pointerdown", onpointerdown, false);
    canvas.addEventListener(
@@ -974,7 +983,9 @@ function main() {
       false
    );
    canvas.addEventListener("pointerup", onpointerup, false);
-   canvas.addEventListener("wheel", (e) => onwheel(e, renderer), false);
+   canvas.addEventListener("wheel", (e) => onwheel(e, renderer), {
+      passive: false,
+   });
 
    requestAnimationFrame(() => renderer.tick());
 }
