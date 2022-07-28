@@ -574,6 +574,10 @@ function degreesToRadians(degrees) {
    return (degrees * Math.PI) / 180.0;
 }
 
+function radiansToDegrees(radians) {
+   return (radians * 180.0) / Math.PI;
+}
+
 class Renderer {
    gl;
    number_of_spheres;
@@ -608,9 +612,9 @@ class Renderer {
       this.sampleCount = 0;
       this.timeSinceStart = timeSinceStart;
       [this.number_of_spheres, this.world_string] = this.#setupWorld();
-      this.cameraPos = glMatrix.vec3.clone([13, 2, 3]);
-      this.lookat = glMatrix.vec3.clone([0, 0, 0]);
-      this.resolution = glMatrix.vec2.clone([width, height]);
+      this.cameraPos = glMatrix.vec3.fromValues(13, 2, 3);
+      this.lookat = glMatrix.vec3.fromValues(0, 0, 0);
+      this.resolution = glMatrix.vec2.fromValues(width, height);
 
       this.textureProgram = createProgramFromSource(
          this.gl,
@@ -748,36 +752,48 @@ class Renderer {
    }
 
    #setupWorld() {
+      // Initialize the world with one big sphere for the ground and three
+      // smaller spheres for demoing different materials, then randomly place
+      // even smaller spheres around those
       let number_of_spheres = 4;
 
       let material_ground = new Material(
          0,
-         glMatrix.vec3.clone([0.5, 0.5, 0.5]),
+         glMatrix.vec3.fromValues(0.5, 0.5, 0.5),
          0,
          0
       );
-      let material1 = new Material(2, glMatrix.vec3.clone([0, 0, 0]), 0, 1.5);
+      let material1 = new Material(
+         2,
+         glMatrix.vec3.fromValues(0, 0, 0),
+         0,
+         1.5
+      );
       let material2 = new Material(
          0,
-         glMatrix.vec3.clone([0.4, 0.2, 0.1]),
+         glMatrix.vec3.fromValues(0.4, 0.2, 0.1),
          0,
          0
       );
       let material3 = new Material(
          1,
-         glMatrix.vec3.clone([0.7, 0.6, 0.5]),
+         glMatrix.vec3.fromValues(0.7, 0.6, 0.5),
          0,
          0
       );
 
       let sphere1 = new Sphere(
-         glMatrix.vec3.clone([0, -1000, 0]),
+         glMatrix.vec3.fromValues(0, -1000, 0),
          1000,
          material_ground
       );
-      let sphere2 = new Sphere(glMatrix.vec3.clone([0, 1, 0]), 1, material1);
-      let sphere3 = new Sphere(glMatrix.vec3.clone([-4, 1, 0]), 1, material2);
-      let sphere4 = new Sphere(glMatrix.vec3.clone([4, 1, 0]), 1, material3);
+      let sphere2 = new Sphere(glMatrix.vec3.fromValues(0, 1, 0), 1, material1);
+      let sphere3 = new Sphere(
+         glMatrix.vec3.fromValues(-4, 1, 0),
+         1,
+         material2
+      );
+      let sphere4 = new Sphere(glMatrix.vec3.fromValues(4, 1, 0), 1, material3);
 
       let world = `
       spheres[0] = ${sphere1.toString()};
@@ -796,13 +812,13 @@ class Renderer {
             let sphere;
             let mat;
             let choose_mat = Math.random();
-            let center = glMatrix.vec3.clone([
+            let center = glMatrix.vec3.fromValues(
                a + 0.9 * Math.random(),
                0.2,
-               b + 0.9 * Math.random(),
-            ]);
+               b + 0.9 * Math.random()
+            );
 
-            let scene_center = glMatrix.vec3.clone([4, 0.2, 0]);
+            let scene_center = glMatrix.vec3.fromValues(4, 0.2, 0);
             let distance = glMatrix.vec3.create();
             glMatrix.vec3.subtract(distance, center, scene_center);
             // Randomly place spheres of various materials around the scene
@@ -894,20 +910,40 @@ class Renderer {
       requestAnimationFrame(() => this.tick());
    }
 
-   rotateCamera(angleX, angleY) {
+   rotateCamera() {
       // Rotate camera around x and y axes
-      glMatrix.vec3.rotateY(
-         this.cameraPos,
-         this.cameraPos,
-         this.lookat,
-         degreesToRadians(angleY)
-      );
-      glMatrix.vec3.rotateX(
-         this.cameraPos,
-         this.cameraPos,
-         this.lookat,
-         degreesToRadians(angleX)
-      );
+      // glMatrix.vec3.rotateY(
+      //    this.cameraPos,
+      //    this.cameraPos,
+      //    this.lookat,
+      //    degreesToRadians(angleY)
+      // );
+
+      // glMatrix.vec3.rotateX(
+      //    this.cameraPos,
+      //    this.cameraPos,
+      //    this.lookat,
+      //    degreesToRadians(angleX)
+      // );
+
+      this.cameraPos[0] = zoom * Math.cos(angleX) * Math.sin(angleY);
+      this.cameraPos[1] = zoom * Math.cos(angleY);
+      this.cameraPos[2] = zoom * Math.sin(angleX) * Math.sin(angleY);
+
+      // Stop the camera from going "beneath" the ground
+      // if (this.cameraPos[1] < 0.1) {
+      //    this.cameraPos[1] = 0.1;
+      // }
+
+      // console.log(
+      //    "x: " +
+      //       this.cameraPos[0] +
+      //       " y: " +
+      //       this.cameraPos[1] +
+      //       " z: " +
+      //       this.cameraPos[2]
+      // );
+
       // Reset samplecount to re-render the texture
       this.sampleCount = 0;
    }
@@ -915,7 +951,11 @@ class Renderer {
    zoomCamera(amount) {
       // Scale camera position along the vector going from the camera position to the point
       // that is being looked at
-      glMatrix.vec3.scale(this.cameraPos, this.cameraPos, amount);
+      // glMatrix.vec3.scale(this.cameraPos, this.cameraPos, amount);
+      zoom *= amount;
+      this.cameraPos[0] = zoom * Math.cos(angleX) * Math.sin(angleY);
+      this.cameraPos[1] = zoom * Math.cos(angleY);
+      this.cameraPos[2] = zoom * Math.sin(angleX) * Math.sin(angleY);
       this.sampleCount = 0;
    }
 }
@@ -923,16 +963,36 @@ class Renderer {
 //-------------------------------------------------------------------
 function onpointerdown(e) {
    drag = true;
+   e.target.style.cursor = "grabbing";
 }
 
 function onpointermove(e, renderer) {
    if (drag) {
-      renderer.rotateCamera(-e.movementY, -e.movementX);
+      angleX += degreesToRadians(-e.movementX);
+      angleY += degreesToRadians(-e.movementY);
+
+      angleY = Math.max(angleY, 0.1);
+      angleY = Math.min(angleY, Math.PI / 2 - 0.01);
+
+      // console.log(
+      //    "angleX: " +
+      //       radiansToDegrees(angleX) +
+      //       " angleY: " +
+      //       radiansToDegrees(angleY) +
+      //       " movementX: " +
+      //       e.movementX +
+      //       " movementY: " +
+      //       e.movementY
+      // );
+
+      renderer.rotateCamera();
+      // console.log(angleX);
    }
 }
 
 function onpointerup(e) {
    drag = false;
+   e.target.style.cursor = "grab";
 }
 
 function onwheel(e, renderer) {
@@ -946,6 +1006,9 @@ function onwheel(e, renderer) {
 //-------------------------------------------------------------------
 
 var drag = false;
+var angleX = 0.15;
+var angleY = 1.35;
+var zoom = 13.5;
 
 function main() {
    var canvas = document.querySelector("#canvas");
@@ -960,14 +1023,13 @@ function main() {
       return;
    }
 
-   const start = new Date();
-
    // Set canvas size
    resizeCanvasToDisplaySize(gl.canvas);
 
    // Set viewport
    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
 
+   const start = new Date();
    var timeSinceStart = new Date() - start;
    var renderer = new Renderer(
       gl,

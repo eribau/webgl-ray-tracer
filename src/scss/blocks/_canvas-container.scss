@@ -14,5 +14,6 @@ $aspect-ratio: math.div(16, 9);
       aspect-ratio: $aspect-ratio;
       display: block;
       touch-action: none;
+      cursor: grab;
    }
 }
