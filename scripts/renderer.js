@@ -21,23 +21,14 @@ const fragmentShaderHeader = (number_of_spheres) => {
       uniform float time;
       uniform float textureWeight;
       uniform sampler2D u_texture;
+      uniform vec2 res;
       out vec4 frag_color;
 
       // Image
-      const float aspect_ratio = 16.0 / 9.0;
-      const float image_width = 600.0;
-      const float image_height = image_width / aspect_ratio;
-      const float viewport_height = 2.0;
-      const float viewport_width = viewport_height * aspect_ratio;
-      const float focal_length = 1.0;
-      const int samples_per_pixel = 1;
       const int max_depth = 50;
 
       // Camera
-      const vec3 origin = vec3(0.0, 0.0, 0.0);
-      const vec3 horizontal = vec3(viewport_width, 0.0, 0.0);
-      const vec3 vertical = vec3(0.0, viewport_height, 0.0);
-      const vec3 lower_left_corner = origin - horizontal/2.0 - vertical/2.0 - vec3(0.0, 0.0, focal_length);
+      uniform vec3 eye;
 
       // Constants
       float infinity = 100000.0;
@@ -48,7 +39,7 @@ const fragmentShaderHeader = (number_of_spheres) => {
 };
 
 // Utilities
-const degreesToRadians = glsl`
+const utilities = glsl`
    float degrees_to_radians(float degrees) {
       return degrees * pi / 180.0;
    }
@@ -365,8 +356,7 @@ const rayColor = glsl`
 const fragmentShaderMain = (world) => {
    return `
       void main() {
-         vec2 resolution = vec2(600, 338);
-         float aspect = resolution.x / resolution.y;
+         float aspect = res.x / res.y;
 
          // World
          Sphere spheres[NUMBER_OF_SPHERES];
@@ -377,16 +367,16 @@ const fragmentShaderMain = (world) => {
          g_seed = float(base_hash(floatBitsToUint(gl_FragCoord.xy)))/float(0xffffffffU)+time;
 
          // Get the coordinates to send the ray through
-         vec2 uv = (gl_FragCoord.xy + hash2(g_seed)) / resolution;
+         vec2 uv = (gl_FragCoord.xy + hash2(g_seed)) / res;
 
          // Setup the camera
          // Camera c = Camera(origin, horizontal, vertical, lower_left_corner, lens_radius, u, v, w);
-         vec3 lookfrom = vec3(12.0, 2.0, 3.0);
+         vec3 lookfrom = eye;
          vec3 lookat = vec3(0.0, 0.0, 0.0);
          vec3 vup = vec3(0.0, 1.0, 0.0);
          float fov = 20.0;
-         // float dist_to_focus = length(lookfrom - lookat);
-         float dist_to_focus = 10.0;
+         float dist_to_focus = length(lookfrom - lookat);
+         // float dist_to_focus = 10.0;
          float aperture = 0.1;
          Camera c = init_camera(lookfrom, lookat, vup, fov, aspect, aperture, dist_to_focus);
 
@@ -394,7 +384,7 @@ const fragmentShaderMain = (world) => {
          Ray r = get_ray(c, uv.x, uv.y);
          vec3 color = clamp(ray_color(r, spheres), 0.0, 0.999);
 
-         vec3 texture = texture(u_texture, gl_FragCoord.xy / resolution).rgb;
+         vec3 texture = texture(u_texture, gl_FragCoord.xy / res).rgb;
          // vec3 texture = vec3(0.0);
          frag_color = vec4(mix(sqrt(color), texture, textureWeight), 1.0);
       }
@@ -404,7 +394,7 @@ const fragmentShaderMain = (world) => {
 function createFragmentShaderSource(number_of_spheres, world) {
    return (
       fragmentShaderHeader(number_of_spheres) +
-      degreesToRadians +
+      utilities +
       random +
       ray +
       rayAt +
@@ -525,10 +515,12 @@ class Sphere {
 
 //-------------------------------------------------------------------
 function createShader(gl, type, source) {
+   console.time("Create shader");
    var shader = gl.createShader(type);
    gl.shaderSource(shader, source);
    gl.compileShader(shader);
    var success = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
+   console.timeEnd("Create shader");
    if (success) {
       return shader;
    }
@@ -543,7 +535,9 @@ function createProgramFromSource(gl, vertexSource, fragmentSource) {
    var textureProgram = gl.createProgram();
    gl.attachShader(textureProgram, vertexShader);
    gl.attachShader(textureProgram, fragmentShader);
+   console.time("Create program");
    gl.linkProgram(textureProgram);
+   console.timeEnd("Create program");
    var success = gl.getProgramParameter(textureProgram, gl.LINK_STATUS);
    if (success) {
       return textureProgram;
@@ -576,236 +570,458 @@ function resizeCanvasToDisplaySize(canvas, multiplier) {
    return false;
 }
 
-//-------------------------------------------------------------------
+function degreesToRadians(degrees) {
+   return (degrees * Math.PI) / 180.0;
+}
 
-function tick(gl, timeSinceStart) {
-   let number_of_spheres = 8;
+function radiansToDegrees(radians) {
+   return (radians * 180.0) / Math.PI;
+}
 
-   let material_ground = new Material(
-      0,
-      glMatrix.vec3.clone([0.5, 0.5, 0.5]),
-      0,
-      0
-   );
-   let material1 = new Material(2, glMatrix.vec3.clone([0, 0, 0]), 0, 1.5);
-   let material2 = new Material(0, glMatrix.vec3.clone([0.4, 0.2, 0.1]), 0, 0);
-   let material3 = new Material(1, glMatrix.vec3.clone([0.7, 0.6, 0.5]), 0, 0);
+class Renderer {
+   gl;
+   number_of_spheres;
+   world_string;
+   sampleCount;
+   timeSinceStart;
+   cameraPos;
+   lookat;
+   resolution;
 
-   let sphere1 = new Sphere(
-      glMatrix.vec3.clone([0, -1000, 0]),
-      1000,
-      material_ground
-   );
-   let sphere2 = new Sphere(glMatrix.vec3.clone([0, 1, 0]), 1, material1);
-   let sphere3 = new Sphere(glMatrix.vec3.clone([-4, 1, 0]), 1, material2);
-   let sphere4 = new Sphere(glMatrix.vec3.clone([4, 1, 0]), 1, material3);
+   vertices;
 
-   let world = `
+   textureProgram;
+   textureVertexAttribute;
+   timeLocation;
+   textureWeightLocation;
+   eyeLocation;
+   resolutionLocation;
+   textureVertexBuffer;
+   textureVao;
+   textures;
+   framebuffer;
+
+   renderProgram;
+   renderVertexAttribute;
+   renderVertexBuffer;
+   renderVao;
+
+   constructor(gl, timeSinceStart, width, height) {
+      this.gl = gl;
+      this.vertices = new Float32Array([-1, -1, -1, 1, 1, -1, 1, 1]);
+      this.sampleCount = 0;
+      this.timeSinceStart = timeSinceStart;
+      [this.number_of_spheres, this.world_string] = this.#setupWorld();
+      this.cameraPos = glMatrix.vec3.fromValues(13, 2, 3);
+      this.lookat = glMatrix.vec3.fromValues(0, 0, 0);
+      this.resolution = glMatrix.vec2.fromValues(width, height);
+
+      this.textureProgram = createProgramFromSource(
+         this.gl,
+         vertexShaderSource,
+         createFragmentShaderSource(this.number_of_spheres, this.world_string)
+      );
+
+      // Setup texture
+      this.textureVertexAttribute = this.gl.getAttribLocation(
+         this.textureProgram,
+         "vertex"
+      );
+
+      this.timeLocation = this.gl.getUniformLocation(
+         this.textureProgram,
+         "time"
+      );
+      this.textureWeightLocation = this.gl.getUniformLocation(
+         this.textureProgram,
+         "textureWeight"
+      );
+      this.resolutionLocation = this.gl.getUniformLocation(
+         this.textureProgram,
+         "res"
+      );
+
+      this.eyeLocation = this.gl.getUniformLocation(this.textureProgram, "eye");
+
+      // Create a buffer for vertices
+      this.textureVertexBuffer = this.gl.createBuffer();
+
+      this.textureVao = this.gl.createVertexArray();
+      this.gl.bindVertexArray(this.textureVao);
+      this.gl.enableVertexAttribArray(this.textureVertexAttribute);
+
+      // Bind it to ARRAY_BUFFER
+      this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.textureVertexBuffer);
+
+      // Set geometry (i.e. two triangles forming a rectangle)
+      this.gl.bufferData(
+         this.gl.ARRAY_BUFFER,
+         this.vertices,
+         this.gl.STATIC_DRAW
+      );
+      this.gl.vertexAttribPointer(
+         this.textureVertexAttribute,
+         2,
+         this.gl.FLOAT,
+         false,
+         0,
+         0
+      );
+
+      // Create textures to render to
+      this.textures = [];
+      this.gl.activeTexture(this.gl.TEXTURE0 + 0);
+      for (var i = 0; i < 2; i++) {
+         this.textures.push(this.gl.createTexture());
+         this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures[i]);
+         this.gl.texImage2D(
+            this.gl.TEXTURE_2D,
+            0,
+            this.gl.RGBA,
+            this.gl.canvas.width,
+            this.gl.canvas.height,
+            0,
+            this.gl.RGBA,
+            this.gl.UNSIGNED_BYTE,
+            null
+         );
+         // Skip mipmap
+         this.gl.texParameteri(
+            this.gl.TEXTURE_2D,
+            this.gl.TEXTURE_MIN_FILTER,
+            this.gl.NEAREST
+         );
+         this.gl.texParameteri(
+            this.gl.TEXTURE_2D,
+            this.gl.TEXTURE_MAG_FILTER,
+            this.gl.NEAREST
+         );
+         this.gl.texParameteri(
+            this.gl.TEXTURE_2D,
+            this.gl.TEXTURE_WRAP_S,
+            this.gl.CLAMP_TO_EDGE
+         );
+         this.gl.texParameteri(
+            this.gl.TEXTURE_2D,
+            this.gl.TEXTURE_WRAP_T,
+            this.gl.CLAMP_TO_EDGE
+         );
+      }
+      this.gl.bindTexture(this.gl.TEXTURE_2D, null);
+
+      // Create and bind the framebuffer
+      this.framebuffer = this.gl.createFramebuffer();
+      this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer);
+
+      // Setup program for rendering to canvas
+      this.renderProgram = createProgramFromSource(
+         this.gl,
+         renderVertexSource,
+         renderFragmentSource
+      );
+
+      this.renderVertexAttribute = this.gl.getAttribLocation(
+         this.renderProgram,
+         "vertex"
+      );
+
+      // Create a buffer for vertices
+      this.renderVertexBuffer = this.gl.createBuffer();
+
+      this.renderVao = this.gl.createVertexArray();
+      this.gl.bindVertexArray(this.renderVao);
+      this.gl.enableVertexAttribArray(this.renderVertexAttribute);
+
+      // Bind it to ARRAY_BUFFER
+      this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.renderVertexBuffer);
+
+      // Set geometry (i.e. two triangles forming a rectangle)
+      this.gl.bufferData(
+         this.gl.ARRAY_BUFFER,
+         this.vertices,
+         this.gl.STATIC_DRAW
+      );
+      this.gl.vertexAttribPointer(
+         this.renderVertexAttribute,
+         2,
+         this.gl.FLOAT,
+         false,
+         0,
+         0
+      );
+   }
+
+   #setupWorld() {
+      // Initialize the world with one big sphere for the ground and three
+      // smaller spheres for demoing different materials, then randomly place
+      // even smaller spheres around those
+      let number_of_spheres = 4;
+
+      let material_ground = new Material(
+         0,
+         glMatrix.vec3.fromValues(0.5, 0.5, 0.5),
+         0,
+         0
+      );
+      let material1 = new Material(
+         2,
+         glMatrix.vec3.fromValues(0, 0, 0),
+         0,
+         1.5
+      );
+      let material2 = new Material(
+         0,
+         glMatrix.vec3.fromValues(0.4, 0.2, 0.1),
+         0,
+         0
+      );
+      let material3 = new Material(
+         1,
+         glMatrix.vec3.fromValues(0.7, 0.6, 0.5),
+         0,
+         0
+      );
+
+      let sphere1 = new Sphere(
+         glMatrix.vec3.fromValues(0, -1000, 0),
+         1000,
+         material_ground
+      );
+      let sphere2 = new Sphere(glMatrix.vec3.fromValues(0, 1, 0), 1, material1);
+      let sphere3 = new Sphere(
+         glMatrix.vec3.fromValues(-4, 1, 0),
+         1,
+         material2
+      );
+      let sphere4 = new Sphere(glMatrix.vec3.fromValues(4, 1, 0), 1, material3);
+
+      let world = `
       spheres[0] = ${sphere1.toString()};
       spheres[1] = ${sphere2.toString()};
       spheres[2] = ${sphere3.toString()};
       spheres[3] = ${sphere4.toString()};
    `;
 
-   let test = "";
+      let side = 3;
+      number_of_spheres = 4 * side * side + 4;
 
-   let side = 3;
-   number_of_spheres = 4 * side * side + 4;
+      var i = 4;
+      for (let a = -side; a < side; a++) {
+         for (let b = -side; b < side; b++) {
+            let sphere_string = "";
+            let sphere;
+            let mat;
+            let choose_mat = Math.random();
+            let center = glMatrix.vec3.fromValues(
+               a + 0.9 * Math.random(),
+               0.2,
+               b + 0.9 * Math.random()
+            );
 
-   var i = 4;
-   for (let a = -side; a < side; a++) {
-      for (let b = -side; b < side; b++) {
-         let sphere_string = "";
-         let sphere;
-         let mat;
-         let choose_mat = Math.random();
-         let center = glMatrix.vec3.clone([
-            a + 0.9 * Math.random(),
-            0.2,
-            b + 0.9 * Math.random(),
-         ]);
+            let scene_center = glMatrix.vec3.fromValues(4, 0.2, 0);
+            let distance = glMatrix.vec3.create();
+            glMatrix.vec3.subtract(distance, center, scene_center);
+            // Randomly place spheres of various materials around the scene
+            if (glMatrix.vec3.length(distance) > 0.9) {
+               if (choose_mat < 0.8) {
+                  // diffuse
+                  let color = [
+                     Math.random() * Math.random(),
+                     Math.random() * Math.random(),
+                     Math.random() * Math.random(),
+                  ];
+                  let albedo = glMatrix.vec3.clone(color);
+                  mat = new Material(0, albedo, 0, 0);
+               } else if (choose_mat < 0.95) {
+                  // metal
+                  let color = [
+                     Math.random() * 0.5,
+                     Math.random() * 0.5,
+                     Math.random() * 0.5,
+                  ];
+                  let albedo = glMatrix.vec3.clone(color);
+                  let fuzz = Math.random() * 0.5;
+                  mat = new Material(1, albedo, fuzz, 0);
+               } else {
+                  // glass
+                  mat = new Material(2, glMatrix.vec3.create(), 0, 1.5);
+               }
 
-         let scene_center = glMatrix.vec3.clone([4, 0.2, 0]);
-         let distance = glMatrix.vec3.create();
-         glMatrix.vec3.subtract(distance, center, scene_center);
-         if (glMatrix.vec3.length(distance) > 0.9) {
-            if (choose_mat < 0.8) {
-               // diffuse
-               let color = [
-                  Math.random() * Math.random(),
-                  Math.random() * Math.random(),
-                  Math.random() * Math.random(),
-               ];
-               let albedo = glMatrix.vec3.clone(color);
-               mat = new Material(0, albedo, 0, 0);
-            } else if (choose_mat < 0.95) {
-               // metal
-               let color = [
-                  Math.random() * 0.5,
-                  Math.random() * 0.5,
-                  Math.random() * 0.5,
-               ];
-               let albedo = glMatrix.vec3.clone(color);
-               let fuzz = Math.random() * 0.5;
-               mat = new Material(1, albedo, fuzz, 0);
-            } else {
-               // glass
-               mat = new Material(2, glMatrix.vec3.create(), 0, 1.5);
-            }
-
-            sphere = new Sphere(center, 0.2, mat);
-            sphere_string = `spheres[${i}] = ${sphere.toString()};
+               sphere = new Sphere(center, 0.2, mat);
+               sphere_string = `spheres[${i}] = ${sphere.toString()};
             `;
 
-            world += sphere_string;
+               world += sphere_string;
 
-            i++;
+               i++;
+            }
          }
       }
+      return [number_of_spheres, world];
    }
 
-   // console.log(world);
-
-   var textureProgram = createProgramFromSource(
-      gl,
-      vertexShaderSource,
-      createFragmentShaderSource(number_of_spheres, world)
-   );
-
-   // Setup texture
-   var textureVertexAttribute = gl.getAttribLocation(textureProgram, "vertex");
-
-   var timeLocation = gl.getUniformLocation(textureProgram, "time");
-   var textureWeightLocation = gl.getUniformLocation(
-      textureProgram,
-      "textureWeight"
-   );
-
-   // Create a buffer for vertices
-   var positionBuffer = gl.createBuffer();
-
-   var textureVao = gl.createVertexArray();
-   gl.bindVertexArray(textureVao);
-   gl.enableVertexAttribArray(textureVertexAttribute);
-
-   // Bind it to ARRAY_BUFFER
-   gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-
-   // Set geometry (i.e. two triangles forming a rectangle)
-   var positions = new Float32Array([-1, -1, -1, 1, 1, -1, 1, 1]);
-   gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
-   gl.vertexAttribPointer(textureVertexAttribute, 2, gl.FLOAT, false, 0, 0);
-
-   // Create texture to render to
-   var textures = [];
-   gl.activeTexture(gl.TEXTURE0 + 0);
-   for (var i = 0; i < 2; i++) {
-      textures.push(gl.createTexture());
-      gl.bindTexture(gl.TEXTURE_2D, textures[i]);
-      gl.texImage2D(
-         gl.TEXTURE_2D,
-         0,
-         gl.RGBA,
-         gl.canvas.width,
-         gl.canvas.height,
-         0,
-         gl.RGBA,
-         gl.UNSIGNED_BYTE,
-         null
-      );
-      // Skip mipmap
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-   }
-   gl.bindTexture(gl.TEXTURE_2D, null);
-
-   // Create and bind the framebuffer
-   const framebuffer = gl.createFramebuffer();
-   gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
-
-   // Render to canvas
-   var renderProgram = createProgramFromSource(
-      gl,
-      renderVertexSource,
-      renderFragmentSource
-   );
-
-   var renderVertexAttribute = gl.getAttribLocation(renderProgram, "vertex");
-
-   // Create a buffer for vertices
-   var vertexBuffer = gl.createBuffer();
-
-   var vao = gl.createVertexArray();
-   gl.bindVertexArray(vao);
-   gl.enableVertexAttribArray(renderVertexAttribute);
-
-   // Bind it to ARRAY_BUFFER
-   gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
-
-   // Set geometry (i.e. two triangles forming a rectangle)
-   var vertices = new Float32Array([-1, -1, -1, 1, 1, -1, 1, -1, -1, 1, 1, 1]);
-   gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
-   gl.vertexAttribPointer(renderVertexAttribute, 2, gl.FLOAT, false, 0, 0);
-
-   console.time("render");
-   var sampleCount = 0;
-   for (var i = 0; i < 100; i++) {
-      // Render to the texture
-      gl.bindTexture(gl.TEXTURE_2D, textures[0]);
-      gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+   drawToTexture() {
+      this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures[0]);
+      this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer);
       // Attach the texture as the first color attachment
-      gl.framebufferTexture2D(
-         gl.FRAMEBUFFER,
-         gl.COLOR_ATTACHMENT0,
-         gl.TEXTURE_2D,
-         textures[1],
+      this.gl.framebufferTexture2D(
+         this.gl.FRAMEBUFFER,
+         this.gl.COLOR_ATTACHMENT0,
+         this.gl.TEXTURE_2D,
+         this.textures[1],
          0
       );
 
       // Use textureProgram
-      gl.useProgram(textureProgram);
-      gl.bindVertexArray(textureVao);
+      this.gl.useProgram(this.textureProgram);
+      this.gl.bindVertexArray(this.textureVao);
 
       // set uniforms
-      gl.uniform1f(timeLocation, timeSinceStart + i);
-      gl.uniform1f(textureWeightLocation, sampleCount / (sampleCount + 1));
+      this.gl.uniform1f(this.timeLocation, this.timeSinceStart);
+      this.gl.uniform1f(
+         this.textureWeightLocation,
+         this.sampleCount / (this.sampleCount + 1)
+      );
+      this.gl.uniform3fv(this.eyeLocation, this.cameraPos);
+      this.gl.uniform2fv(this.resolutionLocation, this.resolution);
+
       // Draw texture and unbind framebuffer
-      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      // Ping pong textures
-      textures.reverse();
+      this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+      this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+      // "Ping pong" textures
+      this.textures.reverse();
 
-      // Render to the canvas
-      gl.useProgram(renderProgram);
-      gl.bindVertexArray(vao);
-      gl.bindTexture(gl.TEXTURE_2D, textures[0]);
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
-
-      sampleCount += 1;
+      this.sampleCount += 1;
    }
-   console.timeEnd("render");
 
-   // requestAnimationFrame(tick(gl, timeSinceStart*0.001))
+   render() {
+      // Render to the canvas
+      this.gl.useProgram(this.renderProgram);
+      this.gl.bindVertexArray(this.renderVao);
+      this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures[0]);
+      this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+   }
+
+   tick() {
+      this.drawToTexture();
+      this.render();
+
+      this.timeSinceStart += 0.0001;
+      requestAnimationFrame(() => this.tick());
+   }
+
+   rotateCamera() {
+      // Rotate camera around x and y axes
+      // glMatrix.vec3.rotateY(
+      //    this.cameraPos,
+      //    this.cameraPos,
+      //    this.lookat,
+      //    degreesToRadians(angleY)
+      // );
+
+      // glMatrix.vec3.rotateX(
+      //    this.cameraPos,
+      //    this.cameraPos,
+      //    this.lookat,
+      //    degreesToRadians(angleX)
+      // );
+
+      this.cameraPos[0] = zoom * Math.cos(angleX) * Math.sin(angleY);
+      this.cameraPos[1] = zoom * Math.cos(angleY);
+      this.cameraPos[2] = zoom * Math.sin(angleX) * Math.sin(angleY);
+
+      // Stop the camera from going "beneath" the ground
+      // if (this.cameraPos[1] < 0.1) {
+      //    this.cameraPos[1] = 0.1;
+      // }
+
+      // console.log(
+      //    "x: " +
+      //       this.cameraPos[0] +
+      //       " y: " +
+      //       this.cameraPos[1] +
+      //       " z: " +
+      //       this.cameraPos[2]
+      // );
+
+      // Reset samplecount to re-render the texture
+      this.sampleCount = 0;
+   }
+
+   zoomCamera(amount) {
+      // Scale camera position along the vector going from the camera position to the point
+      // that is being looked at
+      // glMatrix.vec3.scale(this.cameraPos, this.cameraPos, amount);
+      zoom *= amount;
+      this.cameraPos[0] = zoom * Math.cos(angleX) * Math.sin(angleY);
+      this.cameraPos[1] = zoom * Math.cos(angleY);
+      this.cameraPos[2] = zoom * Math.sin(angleX) * Math.sin(angleY);
+      this.sampleCount = 0;
+   }
 }
 
 //-------------------------------------------------------------------
+function onpointerdown(e) {
+   drag = true;
+   e.target.style.cursor = "grabbing";
+}
+
+function onpointermove(e, renderer) {
+   if (drag) {
+      angleX += degreesToRadians(-e.movementX);
+      angleY += degreesToRadians(-e.movementY);
+
+      angleY = Math.max(angleY, 0.1);
+      angleY = Math.min(angleY, Math.PI / 2 - 0.01);
+
+      // console.log(
+      //    "angleX: " +
+      //       radiansToDegrees(angleX) +
+      //       " angleY: " +
+      //       radiansToDegrees(angleY) +
+      //       " movementX: " +
+      //       e.movementX +
+      //       " movementY: " +
+      //       e.movementY
+      // );
+
+      renderer.rotateCamera();
+      // console.log(angleX);
+   }
+}
+
+function onpointerup(e) {
+   drag = false;
+   e.target.style.cursor = "grab";
+}
+
+function onwheel(e, renderer) {
+   e.preventDefault();
+
+   var scalingFactor = 0.2;
+   renderer.zoomCamera(
+      e.wheelDelta < 0 ? 1 - scalingFactor : 1 + scalingFactor
+   );
+}
+//-------------------------------------------------------------------
+
+var drag = false;
+var angleX = 0.15;
+var angleY = 1.35;
+var zoom = 13.5;
 
 function main() {
    var canvas = document.querySelector("#canvas");
-   var gl = WebGLDebugUtils.makeDebugContext(
-      canvas.getContext("webgl2"),
-      undefined,
-      logGLCall
-   );
-   // var gl = canvas.getContext("webgl2");
+   // var gl = WebGLDebugUtils.makeDebugContext(
+   //    canvas.getContext("webgl2"),
+   //    undefined,
+   //    logGLCall
+   // );
+   var gl = canvas.getContext("webgl2");
    if (!gl) {
-      console.log("No webGl!");
+      console.log("Your browser does not seem to support webGL");
       return;
    }
-
-   const start = new Date();
 
    // Set canvas size
    resizeCanvasToDisplaySize(gl.canvas);
@@ -813,10 +1029,27 @@ function main() {
    // Set viewport
    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
 
+   const start = new Date();
    var timeSinceStart = new Date() - start;
-   // requestAnimationFrame(tick(gl, timeSinceStart));
-   // setInterval(() => tick(gl, timeSinceStart), 1000 / 60);
-   tick(gl, timeSinceStart);
+   var renderer = new Renderer(
+      gl,
+      timeSinceStart * 0.001,
+      gl.canvas.width,
+      gl.canvas.height
+   );
+
+   canvas.addEventListener("pointerdown", onpointerdown, false);
+   canvas.addEventListener(
+      "pointermove",
+      (e) => onpointermove(e, renderer),
+      false
+   );
+   canvas.addEventListener("pointerup", onpointerup, false);
+   canvas.addEventListener("wheel", (e) => onwheel(e, renderer), {
+      passive: false,
+   });
+
+   requestAnimationFrame(() => renderer.tick());
 }
 
 window.onload = main;
