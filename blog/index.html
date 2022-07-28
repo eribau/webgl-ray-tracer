@@ -13,7 +13,7 @@
    
    
 
-   <link rel="stylesheet" media="print" href="/fonts/fonts.css?f4eb-3a0d-bb13" onload="this.media='all'" />
+   <link rel="stylesheet" media="print" href="/fonts/fonts.css?58fd-1cf6-1afe" onload="this.media='all'" />
 
    
    
@@ -52,6 +52,19 @@
 <div class="post-list">
    <ul>
       
+      
+      
+         <li>
+            <article class="post">
+               <h1>Finishing the ray tracer</h1>
+               <time datetime="2022-07-28T00:00:00.000Z">28th of July 2022</time>
+               <p>Done! Or sort of at least... I did not manage to fix that last problem I had with the reflection looking a bit off compared to the book, but I decided to go on with the rest anyway since the problem only shows up in the special case when the radius of a sphere is defined negatively (to get the look of a completely transparent glass ball). Anyway, here is the final result!</p>
+<figure><img src="../images/done.png" alt="Image showing three larger spheres, one with a lambertian material, one with a dielectric material and one with a metallic material. They are surrounded by smaller spheres of various materials."><figcaption>Final render.</figcaption></figure>
+<p>I couldn't generate the additional randomly placed spheres inside the shader, so I had to add some code in javascript that generates a string defining each sphere that I then append to the string literal with the shader code. I also added some basic interactivity to the ray tracer so the user can pan around and zoom in and out of the scene. Previosuly I rendered the image once but to get the interaction to work I had to rewrite the code a little so that's continously being re-rendered and update as the user interacts with it. By first rendering to a texture and then ping-pong between two textures as described in an earlier post I can let the image get smoother over time when it's kept still and when the user moves the camera the scene is &quot;reset&quot; and becomes a grainier before becoming smooth again.</p>
+
+            </article>
+         </li>
+         
       
       
          <li>
@@ -162,7 +175,7 @@
 
       <footer role="contentinfo" class="site-foot">
          <div class="wrapper">
-            <p>Project site for the course DH2323 Computer Graphics and Interactions. Made by Erik Bauer.</p>
+            <p>Made by Erik Bauer.</p>
          </div>
       </footer>
    </div>
