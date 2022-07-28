@@ -907,38 +907,9 @@ class Renderer {
    }
 
    rotateCamera() {
-      // Rotate camera around x and y axes
-      // glMatrix.vec3.rotateY(
-      //    this.cameraPos,
-      //    this.cameraPos,
-      //    this.lookat,
-      //    degreesToRadians(angleY)
-      // );
-
-      // glMatrix.vec3.rotateX(
-      //    this.cameraPos,
-      //    this.cameraPos,
-      //    this.lookat,
-      //    degreesToRadians(angleX)
-      // );
-
       this.cameraPos[0] = zoom * Math.cos(angleX) * Math.sin(angleY);
       this.cameraPos[1] = zoom * Math.cos(angleY);
       this.cameraPos[2] = zoom * Math.sin(angleX) * Math.sin(angleY);
-
-      // Stop the camera from going "beneath" the ground
-      // if (this.cameraPos[1] < 0.1) {
-      //    this.cameraPos[1] = 0.1;
-      // }
-
-      // console.log(
-      //    "x: " +
-      //       this.cameraPos[0] +
-      //       " y: " +
-      //       this.cameraPos[1] +
-      //       " z: " +
-      //       this.cameraPos[2]
-      // );
 
       // Reset samplecount to re-render the texture
       this.sampleCount = 0;
@@ -967,22 +938,11 @@ function onpointermove(e, renderer) {
       angleX += degreesToRadians(-e.movementX);
       angleY += degreesToRadians(-e.movementY);
 
+      // Clamp the angle between ~ 0 and 90 degrees
       angleY = Math.max(angleY, 0.1);
       angleY = Math.min(angleY, Math.PI / 2 - 0.01);
 
-      // console.log(
-      //    "angleX: " +
-      //       radiansToDegrees(angleX) +
-      //       " angleY: " +
-      //       radiansToDegrees(angleY) +
-      //       " movementX: " +
-      //       e.movementX +
-      //       " movementY: " +
-      //       e.movementY
-      // );
-
       renderer.rotateCamera();
-      // console.log(angleX);
    }
 }
 
