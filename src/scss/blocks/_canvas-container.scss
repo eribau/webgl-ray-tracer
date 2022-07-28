@@ -1,11 +1,10 @@
 @use "sass:math";
 
-$width: 800px;
 $aspect-ratio: math.div(16, 9);
 
 .canvas-container {
-   width: $width;
-   height: calc($width / $aspect-ratio);
+   width: 90%;
+   aspect-ratio: $aspect-ratio;
    margin-left: auto;
    margin-right: auto;
 

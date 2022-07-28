@@ -1007,6 +1007,10 @@ var angleY = 1.35;
 var zoom = 13.5;
 
 function main() {
+   let isMobileDevice = window.matchMedia(
+      "only screen and (max-width: 760px)"
+   ).matches;
+
    var canvas = document.querySelector("#canvas");
    // var gl = WebGLDebugUtils.makeDebugContext(
    //    canvas.getContext("webgl2"),
@@ -1034,18 +1038,29 @@ function main() {
       gl.canvas.height
    );
 
-   canvas.addEventListener("pointerdown", onpointerdown, false);
-   canvas.addEventListener(
-      "pointermove",
-      (e) => onpointermove(e, renderer),
-      false
-   );
-   canvas.addEventListener("pointerup", onpointerup, false);
-   canvas.addEventListener("wheel", (e) => onwheel(e, renderer), {
-      passive: false,
-   });
+   if (isMobileDevice) {
+      // Only render a static image of the scene without any interactivity
+      for (let i = 0; i < 50; i++) {
+         requestAnimationFrame(() => {
+            renderer.drawToTexture();
+            renderer.render();
+            renderer.timeSinceStart += 0.001;
+         });
+      }
+   } else {
+      canvas.addEventListener("pointerdown", onpointerdown, false);
+      canvas.addEventListener(
+         "pointermove",
+         (e) => onpointermove(e, renderer),
+         false
+      );
+      canvas.addEventListener("pointerup", onpointerup, false);
+      canvas.addEventListener("wheel", (e) => onwheel(e, renderer), {
+         passive: false,
+      });
 
-   requestAnimationFrame(() => renderer.tick());
+      requestAnimationFrame(() => renderer.tick());
+   }
 }
 
 window.onload = main;
