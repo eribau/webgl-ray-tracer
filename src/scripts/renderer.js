@@ -935,7 +935,7 @@ function onpointerdown(e) {
 
 function onpointermove(e, renderer) {
    if (drag) {
-      angleX += degreesToRadians(-e.movementX);
+      angleX += degreesToRadians(e.movementX);
       angleY += degreesToRadians(-e.movementY);
 
       // Clamp the angle between ~ 0 and 90 degrees
